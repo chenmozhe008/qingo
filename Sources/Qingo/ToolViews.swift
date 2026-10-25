@@ -312,7 +312,7 @@ struct UninstallView: View {
                 IconTile(symbol: "trash.slash.fill", tint: Theme.amber, size: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("已删除应用的残留").font(.system(size: 14, weight: .semibold))
-                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项，没有对应的 App 了")
+                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项，对应的应用已删除")
                         .font(.system(size: 12)).foregroundStyle(Theme.ink3)
                 }
                 Spacer(minLength: 8)
@@ -422,8 +422,8 @@ struct UninstallView: View {
         let kinds = traces.reduce(into: [String]()) { names, trace in
             if !names.contains(trace.kind.title) { names.append(trace.kind.title) }
         }
-        let detail = traces.contains { $0.kind == .toolData } ? "对话、模型和设置，共 \(traces.count) 处"
-            : kinds.joined(separator: "、") + "，共 \(traces.count) 处"
+        let detail = traces.contains { $0.kind == .toolData } ? "对话、模型和设置，共 \(traces.count) 项"
+            : kinds.joined(separator: "、") + "，共 \(traces.count) 项"
         return HStack(spacing: 12) {
             ToolCheckbox(on: picked > 0, amber: amber, partial: picked > 0 && picked < traces.count)
             VStack(alignment: .leading, spacing: 3) {
@@ -442,7 +442,7 @@ struct UninstallView: View {
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(open.wrappedValue ? "收起" : "展开查看每一处")
+            .help(open.wrappedValue ? "收起" : "显示全部")
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 10)
@@ -503,7 +503,7 @@ struct UninstallView: View {
                         ToolCheckbox(on: store.pickedOrphans.contains(group.id))
                         VStack(alignment: .leading, spacing: 3) {
                             Text(group.id).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
-                            Text(Array(Set(group.traces.map(\.kind.title))).sorted().joined(separator: "、") + "，共 \(group.traces.count) 处")
+                            Text(Array(Set(group.traces.map(\.kind.title))).sorted().joined(separator: "、") + "，共 \(group.traces.count) 项")
                                 .font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1)
                         }
                         Spacer(minLength: 8)
@@ -585,7 +585,7 @@ struct DevProjectsView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolTopBar(title: "开发工程", meta: meta) {
+            ToolTopBar(title: "开发项目", meta: meta) {
                 Button("更换文件夹…") { store.chooseRoot() }
                     .buttonStyle(ToolbarButtonStyle(large: true))
                     .disabled(store.isScanning || store.isCleaning)
@@ -596,7 +596,7 @@ struct DevProjectsView: View {
             if store.isScanning {
                 VStack(spacing: 14) {
                     ProgressView().controlSize(.large)
-                    Text("正在查找工程").font(.system(size: 18, weight: .semibold))
+                    Text("正在查找项目").font(.system(size: 18, weight: .semibold))
                     Text("已检查 \(store.scannedCount.formatted()) 项").font(.system(size: 13)).foregroundStyle(Theme.ink2).monospacedDigit()
                     Button("停止扫描") { store.cancelScan() }.buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
                 }
@@ -606,8 +606,8 @@ struct DevProjectsView: View {
             } else {
                 VStack(spacing: 12) {
                     IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.blue, size: 56)
-                    Text("查找工程中可清理的构建缓存").font(.system(size: 22, weight: .bold)).padding(.top, 8)
-                    Text("将在「\(ToolText.short(store.root))」中查找构建缓存，不涉及代码和依赖。")
+                    Text("查找项目中的构建缓存").font(.system(size: 22, weight: .bold)).padding(.top, 8)
+                    Text("将在「\(ToolText.short(store.root))」中查找，不影响代码和依赖。")
                         .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                     if let message = store.message { Text(message).font(.system(size: 12.5)).foregroundStyle(Theme.amber) }
                     Button { store.scan() } label: { Label("开始扫描", systemImage: "play.fill") }
@@ -622,7 +622,7 @@ struct DevProjectsView: View {
 
     private var meta: String {
         guard let result = store.result, !store.isScanning else { return ToolText.short(store.root) }
-        return "在 \(ToolText.short(result.root)) 里找到 \(result.projects.count) 个工程"
+        return "在 \(ToolText.short(result.root)) 中找到 \(result.projects.count) 个项目"
     }
 
     private func content(_ result: DevScanResult) -> some View {
@@ -631,7 +631,7 @@ struct DevProjectsView: View {
             GlassGroup {
             VStack(alignment: .leading, spacing: 12) {
                 PageHeader(symbol: "hammer.fill", tint: Theme.indigo, title: result.projects.isEmpty ? "未发现可清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存",
-                           subtitle: "编译和运行时生成的缓存，清理后会自动重建。不涉及代码、依赖和设置。") {
+                           subtitle: "构建时生成的缓存，清理后会自动重建。不影响代码、依赖和设置。") {
                     devActions
                 }
                 .padding(.bottom, 4)
@@ -689,14 +689,14 @@ struct DevProjectsView: View {
         // Where the copies sit: "packages/ui、apps/web 等", or the path itself for a single one.
         let places = group.items.map { item in
             let parent = (relative(item) as NSString).deletingLastPathComponent
-            return parent.isEmpty ? "工程根目录" : parent
+            return parent.isEmpty ? "项目根目录" : parent
         }
         let detail = failure.map { "未清理：\($0)" }
-            ?? (group.items.count == 1 ? relative(first) : "在 " + places.prefix(2).joined(separator: "、") + (places.count > 2 ? " 等处" : ""))
+            ?? (group.items.count == 1 ? relative(first) : "位于 " + places.prefix(2).joined(separator: "、") + (places.count > 2 ? " 等位置" : ""))
         return HStack(spacing: 12) {
             ToolCheckbox(on: pickedCount > 0, partial: pickedCount > 0 && pickedCount < group.items.count)
             VStack(alignment: .leading, spacing: 3) {
-                Text(group.items.count > 1 ? "\(artifactTitle(first)) \(group.items.count) 处" : artifactTitle(first))
+                Text(group.items.count > 1 ? "\(artifactTitle(first))（\(group.items.count) 项）" : artifactTitle(first))
                     .font(.system(size: 13.5, weight: .medium))
                 Text(detail).font(.system(size: 12)).foregroundStyle(failure == nil ? Theme.ink3 : Theme.amber).lineLimit(1).truncationMode(.middle)
             }

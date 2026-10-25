@@ -75,7 +75,7 @@ struct DiskScanner: Sendable {
 
         if !metadata.isDirectory {
             if policy.isProject(url), !insideProject, url != root, metadata.size >= minProjectBytes {
-                emit(&items, item(url, kind: .project, bytes: metadata.size, note: "工程文件，仅显示占用。", canTrash: false, identity: metadata.identity, modified: metadata.modified))
+                emit(&items, item(url, kind: .project, bytes: metadata.size, note: "项目文件，仅显示大小。", canTrash: false, identity: metadata.identity, modified: metadata.modified))
             } else if !insideProject, url != root,
                       metadata.size >= largeFileThreshold || (metadata.size >= 100_000_000 && ["dmg", "pkg"].contains(url.pathExtension.lowercased())) {
                 let installer = ["dmg", "pkg"].contains(url.pathExtension.lowercased())
@@ -113,7 +113,7 @@ struct DiskScanner: Sendable {
             if project, sum < minProjectBytes {
                 // Too small to be worth listing; still counted in the parent total.
             } else if project {
-                let note = url.lastPathComponent == "Figma" ? "Figma 的本地数据，可能包含未同步的离线改动。仅显示占用，请在 Figma 中处理。" : "工程或应用数据，仅显示占用。"
+                let note = url.lastPathComponent == "Figma" ? "Figma 的本地数据，可能包含未同步的离线改动。仅显示大小，请在 Figma 中处理。" : "项目或应用数据，仅显示大小。"
                 emit(&items, item(url, kind: .project, bytes: sum, note: note, canTrash: false, identity: metadata.identity, modified: metadata.modified))
             } else if let reviewNote {
                 if url.path == policy.home.appending(path: "Library/Application Support/Shandianshuo/recordings").path {

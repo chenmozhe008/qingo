@@ -328,7 +328,7 @@ struct AppUninstaller: Sendable {
 @MainActor
 final class UninstallStore: ObservableObject {
     enum Sort: String, CaseIterable, Identifiable {
-        case size = "按大小", idle = "按多久没用"
+        case size = "按大小", idle = "按上次使用时间"
         var id: String { rawValue }
     }
 

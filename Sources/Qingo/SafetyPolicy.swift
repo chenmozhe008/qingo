@@ -87,10 +87,10 @@ struct SafetyPolicy: Sendable {
             return "项目依赖文件夹，删除后需重新安装。"
         }
         if path == home.appending(path: "Library/Application Support/Shandianshuo/recordings").path {
-            return "闪电说的录音，仅统计超过 15 天的旧录音，需逐条确认。"
+            return "闪电说的录音，仅列出超过 15 天的录音，需逐条确认。"
         }
         if path == home.appending(path: "Library/Application Support/Notion/Partitions/notion/Service Worker").path {
-            return "Notion 的离线缓存可能包含未同步的改动，仅显示占用。"
+            return "Notion 的离线缓存可能包含未同步的改动，仅显示大小。"
         }
         if url.lastPathComponent == "Render Files", path.contains(".fcpbundle/") {
             return "Final Cut 的渲染文件。请在 Final Cut 中选中资源库，选择「文件 → 删除已生成的资源库文件」。此处不直接清理。"
@@ -118,7 +118,7 @@ struct SafetyPolicy: Sendable {
                 return nil
             }
             if name == "Blender" {
-                return "Blender 的应用缓存，不包含 .blend 工程和用户设置，下次打开时会重新生成。"
+                return "Blender 的应用缓存，不包含 .blend 文件和用户设置，下次打开时会重新生成。"
             }
             if name == "Homebrew" {
                 return "Homebrew 的下载缓存。清理旧版本请使用 brew cleanup，小清不会自动运行。"
@@ -132,7 +132,7 @@ struct SafetyPolicy: Sendable {
         }
 
         let directCaches = [
-            ("Library/Developer/Xcode/DerivedData", "Xcode 的构建缓存和索引，下次打开工程时会重新生成。"),
+            ("Library/Developer/Xcode/DerivedData", "Xcode 的构建缓存和索引，下次打开项目时会重新生成。"),
             (".cache/uv", "uv 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".cache/pip", "pip 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".npm/_cacache", "npm 的包缓存，下次安装依赖时可能需要重新下载。"),
@@ -159,7 +159,7 @@ struct SafetyPolicy: Sendable {
         }
         if name == ".gradle", ["build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"]
             .contains(where: { FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appending(path: $0).path) }) {
-            return "Gradle 的工程缓存，下次构建时会重新生成。"
+            return "Gradle 的项目缓存，下次构建时会重新生成。"
         }
         if name == "cache", url.deletingLastPathComponent().lastPathComponent == ".next" {
             return "Next.js 的构建缓存，下次构建时会重新生成。"

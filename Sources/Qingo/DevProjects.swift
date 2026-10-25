@@ -113,7 +113,7 @@ struct DevScanner: Sendable {
     }
 }
 
-/// State of the "开发工程" page.
+/// State of the "开发项目" page.
 @MainActor
 final class DevStore: ObservableObject {
     @Published var result: DevScanResult? {

@@ -86,7 +86,7 @@ private enum Comparison {
         ("可恢复", [c(.good, "移到废纸篓，可恢复"), c(.none, "一键清理"), c(.none, "一键清理"), c(.none, "一键清理"), c(.bad, "直接永久删除")]),
         ("AI Coding 与影视工具", [c(.good, "按工具区分缓存和作品"), c(.none, "通用应用缓存、Xcode 垃圾"), c(.none, "—"), c(.none, "应用缓存，含 Final Cut、Adobe"), c(.bad, "不区分")]),
         ("代码开源", [c(.good, "MIT 开源"), c(.bad, "闭源"), c(.good, "开源"), c(.bad, "闭源"), c(.bad, "闭源")]),
-        ("微信 / 企业微信", [c(.good, "显示占用，提供微信内清理路径"), c(.none, "—"), c(.good, "扫描并清理聊天文件"), c(.none, "—"), c(.partial, "只显示文件夹大小")]),
+        ("微信 / 企业微信", [c(.good, "显示占用空间，提供微信内清理路径"), c(.none, "—"), c(.good, "扫描并清理聊天文件"), c(.none, "—"), c(.partial, "只显示文件夹大小")]),
         ("逐项说明", [c(.good, "中文名称、可否清理及原因"), c(.partial, "按类别汇总"), c(.partial, "按类别汇总"), c(.partial, "按类别汇总"), c(.bad, "只有文件夹名")])
     ]
 }
@@ -195,7 +195,7 @@ struct AboutView: View {
                 Text("AI 时代的 Mac 清理工具")
                     .font(.system(size: 28, weight: .bold))
                     .foregroundStyle(Theme.ink)
-                Text("AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文件，常达数 GB。通用清理工具难以区分哪些可以重建、哪些是对话和作品。小清按工具识别这些文件：清理可重建的缓存，保留工程、对话和模型。")
+                Text("AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文件，常达数 GB。通用清理工具难以区分哪些可以重建、哪些是对话和作品。小清按工具识别这些文件：清理可重建的缓存，保留项目、对话和模型。")
                     .font(.system(size: 14.5)).foregroundStyle(Theme.ink2)
                     .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
@@ -231,7 +231,7 @@ struct AboutView: View {
             .glass()
 
             VStack(alignment: .leading, spacing: 12) {
-                Text("它的优势").font(.system(size: 18, weight: .bold))
+                Text("主要特点").font(.system(size: 18, weight: .bold))
                 advantage("识别 AI Coding 工具", nil, "chevron.left.forwardslash.chevron.right", Theme.blue,
                           "支持 Cursor、Claude Code、Codex、WorkBuddy、CodeBuddy、Trae、Qoder 等主流 AI Coding 与智能体工具，以及 Ollama、LM Studio 等本地模型。",
                           clean: "清理运行时、下载包和界面缓存，均可自动重建",
@@ -239,7 +239,7 @@ struct AboutView: View {
                 advantage("识别影视创作软件", nil, "film.stack.fill", Theme.pink,
                           "支持剪映、达芬奇、After Effects、Premiere、Final Cut、Blender 等主流剪辑和设计软件。",
                           clean: "直接清理剪映缓存、AE 磁盘缓存和 Adobe 媒体缓存；达芬奇、Final Cut 的渲染缓存提供软件内清理路径",
-                          keep: "保留工程、草稿和素材")
+                          keep: "保留项目、草稿和素材")
                 advantage("只清理可重建的内容", nil, "checkmark.shield.fill", Theme.green,
                           "列出的项目均可自动重建，默认全选，一键清理。无法确认安全的内容不会列出。",
                           clean: "文件移到废纸篓，可随时恢复",

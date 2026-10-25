@@ -27,7 +27,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         /// What the read-only part of these tools holds.
         var dataNote: String {
             switch self {
-            case .video, .design: "工程、素材和设置"
+            case .video, .design: "项目、素材和设置"
             case .aiCreate: "模型、工作流和生成的作品"
             case .aiChat: "对话记录和登录状态"
             case .aiCode: "对话记录、扩展和工作区设置"
@@ -76,11 +76,11 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     var hint: String {
-        cleanHow ?? "缓存可在此清理；\(group.dataNote)仅统计，不删除"
+        cleanHow ?? "缓存可在此清理；\(group.dataNote)仅显示大小"
     }
 
     var dataDescription: String {
-        "\(title) 的\(group.dataNote)。仅显示占用，不提供删除。" + (cleanHow.map { "\($0)。" } ?? "")
+        "\(title) 的\(group.dataNote)。仅显示大小，不会删除。" + (cleanHow.map { "\($0)。" } ?? "")
     }
 
     /// How to slim down a VS Code-style editor: extensions are the big part and are removed in the editor.
@@ -185,7 +185,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
 
     // 本地模型
     static let ollama = CreativeApp("ollama", "Ollama", .localModel, apps: ["com.electron.ollama", "Ollama"], folders: ["Ollama"], roots: [".ollama"],
-                                    cleanHow: "Ollama 的模型文件相互共用，需在终端用 ollama rm 删除，此处仅统计")
+                                    cleanHow: "Ollama 的模型文件相互共用，需在终端用 ollama rm 删除，此处仅显示大小")
     static let lmStudio = CreativeApp("lmstudio", "LM Studio", .localModel, apps: ["LM Studio"], folders: ["LM Studio"], roots: [".lmstudio", ".cache/lm-studio"])
     static let localModels = CreativeApp("huggingface", "Hugging Face 模型", .localModel, short: "Hugging Face", roots: [".cache/huggingface"])
     static let jan = CreativeApp("jan", "Jan", .localModel, apps: ["Jan"], folders: ["Jan"], roots: ["jan"])

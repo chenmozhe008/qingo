@@ -10,10 +10,10 @@ enum ScanKind: String, Codable, Sendable {
 
     var label: String {
         switch self {
-        case .cache: "可重新生成的缓存"
+        case .cache: "可自动重建的缓存"
         case .project: "项目或资源库"
         case .largeFile: "大文件"
-        case .review: "需在原软件中处理"
+        case .review: "需在原应用中处理"
         case .folder: "文件夹"
         }
     }

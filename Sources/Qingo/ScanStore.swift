@@ -167,9 +167,9 @@ final class ScanStore: ObservableObject {
     }
 
     var notScannedTitle: String {
-        if quickMode { return "还没做过快速扫描" }
-        if root.path == policy.home.path { return "还没做过完整扫描" }
-        return "还没扫描过「\(root.lastPathComponent)」"
+        if quickMode { return "尚未进行快速扫描" }
+        if root.path == policy.home.path { return "尚未进行完整扫描" }
+        return "尚未扫描「\(root.lastPathComponent)」"
     }
 
     var selectedItem: ScanItem? { displayedItems.first { $0.id == selectedID } }
@@ -548,7 +548,7 @@ final class ScanStore: ObservableObject {
         let checkedItems = present.map { item in
             guard item.canTrash, policy.cacheDescription(for: item.url, isDirectory: true) == nil else { return item }
             return ScanItem(id: item.id, url: item.url, kind: .review, risk: .c, bytes: item.bytes,
-                            note: "清理规则已更新，此位置仅显示占用。重新扫描可更新结果。", canTrash: false, identity: item.identity,
+                            note: "清理规则已更新，此项仅显示大小。重新扫描以更新结果。", canTrash: false, identity: item.identity,
                             modified: item.modified)
         }
         result = ScanResult(root: value.root, isQuickScan: value.isQuickScan, items: checkedItems,
@@ -671,7 +671,13 @@ enum ItemFilter: String, CaseIterable, Identifiable {
     case review = "需要判断"
     case large = "大文件与工程"
     var id: String { rawValue }
-    var title: String { self == .creative ? "创作与 AI 工具" : rawValue }
+    var title: String {
+        switch self {
+        case .creative: "创作与 AI 工具"
+        case .large: "大文件"
+        default: rawValue
+        }
+    }
 
     func contains(_ item: ScanItem) -> Bool {
         let creative = CreativeApp.of(item) != nil
