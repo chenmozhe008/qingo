@@ -60,7 +60,7 @@
 - 创作与 AI 工具（2026-10-21 用户定：**国内外同类软件都要覆盖**，自己没装的别人也会用）：清单在 `CreativeApps.swift`，按 6 组（剪辑与调色 / 设计与三维 / AI 生图与视频 / AI 助手 / AI Coding 与智能体 / 本地模型）。规则：工具目录整体只读（`dataOwner`）；能清的只有它在 `~/Library/Caches` 的文件夹、`caches` 里列出的目录、应用目录下一层的浏览器内核缓存（`engineCaches`）。加新工具只改这个文件；**拿不准的路径只放 folders/roots（只读），不放 caches**
 - 工具数据里自动认作可清理的（2026-10-25 用户问「WorkBuddy 不知道怎么清理，能直接清吗」后加，`CreativeApp.cacheNote`）：`Application Support/<工具>/` 下一层的内核缓存；更深处的内核缓存只在**上一级是浏览器配置目录**（有 `Preferences`/`Local State` 或在 `Partitions` 里）时才算；任意深度的 `Crashpad`/`crashpad`；工具顶层目录下的 `logs`/`Logs`；`~/Library/Logs/<认得的工具>`。**不认的**：名字带 cache 的普通文件夹（如 WorkBuddy 的 `plugins/cache`，同类工具在这里放已装插件）、`~/Library/Logs` 整体（里面有用户自己定时任务的日志）
 - 「在 XX 里处理」按钮只在该工具写了 `cleanHow`（具体怎么清）时出现，否则是「查看位置」——光打开软件不告诉怎么清没用（用户反馈）；`cleanHow` 只写查证过的做法
-- 页面：按组分区、每个工具一张卡（缓存可勾选 / 单个模型确认后可删 / 本地数据只读带「在 XX 里处理」）；已安装没占用的合成一行；底部可展开「能识别的 N 款工具」。命令行工具没有 App 图标时用 `iconApp` 借厂商 App 图标，否则按组配色的图标块
+- 页面：按组分区、每个工具一张卡（缓存可勾选 / 单个模型确认后可删 / 本地数据只读带「在 XX 里处理」）；一个工具有 2 处以上可清理项时合成一行「可以清理」（写种类和处数，点行全选、箭头展开明细；用户嫌零碎行太多，2026-10-25）；已安装没占用的合成一行；底部可展开「能识别的 N 款工具」。命令行工具没有 App 图标时用 `iconApp` 借厂商 App 图标，否则按组配色的图标块
 - 只读数据 < 1 MB 不列（`minToolDataBytes`）；Containers 下的沙盒目录不碰（读它会触发系统授权弹窗）
 - 微信 / 企业微信：**只读量大小，永不提供删除**（`DiskScanner.chatAppUsage`）。专页左右两栏：左＝总占用圆环 + 两款软件卡（点选切换）；右＝结论卡（+「打开微信」）/ 横向步骤条（`ChatGuide.shortSteps`，详细句子点「详细说明」才展开）/「哪些能删」三条；两栏高度要大致对齐（用户嫌竖排步骤默认占地方、也嫌右边空）
 - 左栏位置**点击只切换、不扫描**：显示该位置上次结果（每个位置单独存 `results/<base64>.json`），旁边写「N 分钟前 / 昨天 / 未扫描」；没扫过显示「开始扫描」页；扫描只由右上「重新扫描」/「开始扫描」触发
@@ -75,7 +75,7 @@
 
 - 截图只截本 App 窗口：按 PID 取最大窗口 ID → `screencapture -l <id>`（不受其他窗口遮挡）
 - 切分类：`defaults write io.github.chenmozhe008.qingo lastFilter "<分类名>"` 后重开 App；**不要用模拟鼠标点击**，用户可能在用电脑（2026-10-20 点到过微信）
-- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页
+- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标

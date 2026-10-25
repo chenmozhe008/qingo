@@ -1177,7 +1177,8 @@ struct MainView: View {
         if cleanable == 0, readOnly > 0 { notes.append("都是工程、模型和对话等数据，只统计、不删除，要清理请在各自软件里操作。") }
         if decided > 0 { notes.append("下载的模型有 \(ByteFormat.string(decided)) 可以挑着删，删了要重新下载。") }
         if result.isQuickScan { notes.append("Final Cut 渲染文件和达芬奇 CacheClip 需要完整扫描才能找到。") }
-        return ScrollView {
+        return ScrollViewReader { proxy in
+        ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
@@ -1200,7 +1201,7 @@ struct MainView: View {
                                 .font(.system(size: 12.5)).monospacedDigit().foregroundStyle(Theme.ink3)
                         }
                         .padding(.top, 6)
-                        ForEach(apps) { app in creativeGroup(app, items: items.filter { CreativeApp.of($0) == app }) }
+                        ForEach(apps) { app in creativeGroup(app, items: items.filter { CreativeApp.of($0) == app }).id(app.id) }
                     }
                 }
                 if !idle.isEmpty {
@@ -1211,6 +1212,10 @@ struct MainView: View {
             .padding(.horizontal, 26)
             .padding(.vertical, 22)
             }
+        }
+        .onAppear {
+            if let target = store.creativeScrollTarget { proxy.scrollTo(target, anchor: .top) }
+        }
         }
     }
 
@@ -1480,7 +1485,17 @@ struct MainView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            ForEach(items) { item in creativeRow(item, app: app) }
+            // Several cleanable parts (engine caches, logs, crash reports…) read as one row; details on demand.
+            let cleanable = items.filter(\.canTrash)
+            if cleanable.count > 1 {
+                cleanableSummaryRow(app, items: cleanable)
+                if store.expandedGroups.contains("creative:\(app.id)") {
+                    ForEach(cleanable) { item in creativeRow(item, app: app).padding(.leading, 30) }
+                }
+                ForEach(items.filter { !$0.canTrash }) { item in creativeRow(item, app: app) }
+            } else {
+                ForEach(items) { item in creativeRow(item, app: app) }
+            }
         }
         .glass()
     }
@@ -1533,6 +1548,59 @@ struct MainView: View {
             store.hover.update(item.id, inside: inside)
         }
         .contextMenu { Button("在访达中显示") { reveal(item) } }
+    }
+
+    /// One row for all of a tool's regenerable parts: "界面缓存、日志、崩溃报告，共 9 处".
+    private func cleanableSummaryRow(_ app: CreativeApp, items: [ScanItem]) -> some View {
+        let key = "creative:\(app.id)"
+        let expanded = store.expandedGroups.contains(key)
+        let picked = items.filter { store.selectedCleanupIDs.contains($0.id) }.count
+        let kinds = items.sorted { $0.bytes > $1.bytes }.reduce(into: [String]()) { names, item in
+            // "界面缓存 · Code Cache" and "界面缓存 · GPUCache" are one kind here.
+            let kind = ItemPresentation.partTitle(for: item).components(separatedBy: " · ").first ?? ""
+            if !names.contains(kind) { names.append(kind) }
+        }
+        let failed = items.contains { store.failureReasons[$0.id] != nil }
+        let toggleExpanded = {
+            withAnimation(.easeOut(duration: 0.18)) {
+                if expanded { store.expandedGroups.remove(key) } else { store.expandedGroups.insert(key) }
+            }
+        }
+        return HStack(spacing: 12) {
+            ToolCheckbox(on: picked > 0, partial: picked > 0 && picked < items.count)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("可以清理").font(.system(size: 14, weight: .medium))
+                Text(failed ? "有的没清掉，展开看原因" : kinds.joined(separator: "、") + "，共 \(items.count) 处")
+                    .font(.system(size: 12)).foregroundStyle(failed ? Theme.amber : Theme.ink3).lineLimit(1).truncationMode(.tail)
+            }
+            Spacer(minLength: 10)
+            capsuleTag("可在此清理", tint: Theme.cyan)
+            Text(ByteFormat.string(ScanStore.sum(items)))
+                .font(.system(size: 14, weight: .medium))
+                .monospacedDigit()
+                .frame(width: 84, alignment: .trailing)
+            Button(action: toggleExpanded) {
+                Image(systemName: expanded ? "chevron.up.circle.fill" : "chevron.down.circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(expanded ? Theme.cyan : Theme.ink3)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(expanded ? "收起" : "展开查看每一处")
+        }
+        .padding(.leading, 70)
+        .padding(.trailing, 18)
+        .padding(.vertical, 11)
+        .background(picked > 0 ? Theme.cyan.opacity(0.08) : .clear)
+        .background(HoverFill(tracker: store.hover, id: URL(fileURLWithPath: "/creative/" + app.id), color: Theme.fill(0.05)))
+        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.setGroupSelected(items, selected: picked < items.count) }
+        }
+        .onHover { inside in store.hover.update(URL(fileURLWithPath: "/creative/" + app.id), inside: inside) }
+        .contextMenu { Button(expanded ? "收起" : "展开查看每一处", action: toggleExpanded) }
     }
 
     private func capsuleTag(_ text: String, tint: Color) -> some View {

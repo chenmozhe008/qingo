@@ -47,6 +47,8 @@ final class ScanStore: ObservableObject {
     /// Sidebar folder row under the pointer (shows its remove button). List rows use `hover` instead.
     @Published var hoveredID: URL?
     let hover = HoverTracker()
+    /// Tool id the creative page scrolls to when it appears (launch argument, for screenshots).
+    var creativeScrollTarget: String?
     /// Items found so far in the running scan, newest last.
     @Published var liveFound: [ScanItem] = []
     @Published var savedFolders: [URL] = []
@@ -107,6 +109,8 @@ final class ScanStore: ObservableObject {
             aboutTab = AboutTab(rawValue: String(about.drop { $0 != "=" }.dropFirst())) ?? .intro
         }
         if arguments.contains("--scan") { scan() }
+        // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
+        creativeScrollTarget = arguments.first { $0.hasPrefix("--creative-app=") }.map { String($0.dropFirst("--creative-app=".count)) }
         // `--tool=uninstall` / `--tool=dev` (add `--dev-scan` to rescan the dev folder).
         if let page = arguments.first(where: { $0.hasPrefix("--tool=") }) {
             uninstaller.pendingSelection = arguments.first { $0.hasPrefix("--select-app=") }.map { String($0.dropFirst("--select-app=".count)) }
