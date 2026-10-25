@@ -712,17 +712,18 @@ struct MainView: View {
                 .keyboardShortcut("[", modifiers: .command)
                 .help("回到总览（⌘[）")
             }
-            // Rescan sits beside the time it refreshes, as a quiet link: it is not the page's main action.
+            // Rescan sits beside the time it refreshes. A result older than a day is likely out of date
+            // (things got cleaned or rebuilt since), so then the time turns amber and rescan becomes the filled button.
+            let stale = Date().timeIntervalSince(result.scannedAt) > 86_400
             Text(store.showingOverview ? "\(volumeName(result.root))，\(store.scopeTitle)于\(Self.ago(result.scannedAt))" : "\(Self.ago(result.scannedAt))扫描")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
-            Button { store.scan() } label: {
-                Label("重新扫描", systemImage: "arrow.clockwise")
-                    .font(.system(size: 12.5, weight: .medium))
-                    .foregroundStyle(Theme.blue)
+            if stale {
+                Text("结果可能已过期").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.amber).lineLimit(1)
             }
-                .buttonStyle(.plain)
+            Button { store.scan() } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
+                .buttonStyle(ToolbarButtonStyle(prominent: stale, large: true, tinted: !stale))
                 .help("重新扫描「\(store.scopeTitle)」（⌘R）")
             Spacer()
         }

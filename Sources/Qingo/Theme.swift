@@ -255,7 +255,7 @@ struct ToolbarButtonStyle: ButtonStyle {
             .padding(.horizontal, large ? 18 : 12)
             .padding(.vertical, large ? 10 : 7)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(prominent ? Theme.blue : (tinted ? Theme.blue.opacity(configuration.isPressed ? 0.28 : 0.18) : Theme.fill(configuration.isPressed ? 0.12 : 0.05))))
+                .fill(prominent ? Theme.blueFill : (tinted ? Theme.blue.opacity(configuration.isPressed ? 0.28 : 0.18) : Theme.fill(configuration.isPressed ? 0.12 : 0.05))))
             .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(prominent ? .clear : (tinted ? Theme.blue.opacity(0.45) : Theme.line)))
             .opacity(configuration.isPressed ? 0.8 : 1)
             .contentShape(Rectangle())
