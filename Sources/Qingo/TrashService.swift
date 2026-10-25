@@ -86,19 +86,19 @@ struct TrashService {
 
     /// Short Chinese reason for the cleanup report; raw Foundation messages are long and English.
     static func reason(for error: Error) -> String {
-        if let trashError = error as? TrashError { return trashError.errorDescription ?? "未处理" }
+        if let trashError = error as? TrashError { return trashError.errorDescription ?? "没清" }
         let nsError = error as NSError
         if nsError.domain == NSCocoaErrorDomain {
             switch nsError.code {
-            case NSFileWriteNoPermissionError, NSFileReadNoPermissionError: return "系统或其他账户的文件夹，没有权限移动"
-            case NSFileNoSuchFileError: return "已不存在"
+            case NSFileWriteNoPermissionError, NSFileReadNoPermissionError: return "系统的文件夹，小清没有权限动"
+            case NSFileNoSuchFileError: return "已经没有了"
             default: break
             }
         }
         if nsError.domain == NSPOSIXErrorDomain, [Int(EPERM), Int(EACCES)].contains(nsError.code) {
-            return "系统或其他账户的文件夹，没有权限移动"
+            return "系统的文件夹，小清没有权限动"
         }
-        return "移动失败"
+        return "没能放进废纸篓"
     }
 }
 
@@ -118,10 +118,10 @@ enum TrashError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .notEligible: "不在可清理范围"
-        case .changed: "扫描后有变化，请重新扫描"
-        case .inUse: "正在使用，退出相关应用后再清一次"
-        case .usageUnknown: "无法确认是否正在使用，已跳过"
+        case .notEligible: "这一处小清不能清"
+        case .changed: "扫描后它变过了，重新扫描后再清"
+        case .inUse: "有软件正在用，关掉后再清"
+        case .usageUnknown: "看不出有没有软件在用，为了安全先不清"
         }
     }
 }

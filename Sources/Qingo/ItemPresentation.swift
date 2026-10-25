@@ -95,18 +95,24 @@ enum ItemPresentation {
     }
 
     static func runningOwner(of item: ScanItem) -> String? {
+        guard let running = runningApp(of: item) else { return nil }
+        return running.localizedName ?? CreativeApp.of(item)?.title ?? item.name
+    }
+
+    /// The running app this cache belongs to, if any (by bundle id, not by open files).
+    static func runningApp(of item: ScanItem) -> NSRunningApplication? {
         if let app = CreativeApp.of(item) {
             let running = NSWorkspace.shared.runningApplications.first { running in
                 guard let id = running.bundleIdentifier else { return false }
                 return id == app.bundleID || app.apps.contains { id == $0 || id.hasPrefix($0 + ".") || (running.localizedName ?? "").hasPrefix($0) }
             }
-            if let running { return running.localizedName ?? app.title }
+            if let running { return running }
         }
         let alias = aliases[item.name]?.bundleID
         let applicationURL = alias.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
             ?? application(for: item.name)
         guard let applicationURL, let identifier = Bundle(url: applicationURL)?.bundleIdentifier else { return nil }
-        return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == identifier }?.localizedName
+        return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == identifier }
     }
 
     private static func resolve(_ item: ScanItem) -> Info {
@@ -121,9 +127,10 @@ enum ItemPresentation {
             // Real document icons (Keynote, PPT, PSD, Final Cut library…) read better than a generic glyph.
             return Info(title: name, icon: NSWorkspace.shared.icon(forFile: item.url.path), symbol: symbol(for: item))
         }
-        if item.kind == .cache, let app = application(for: name) {
-            let title = FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
-            return Info(title: title, icon: NSWorkspace.shared.icon(forFile: app.path), symbol: "app.fill")
+        if item.kind == .cache, let found = application(for: name) {
+            // A helper inside another app (腾讯会议's UpdateServer) is shown as that app.
+            let app = outermostApp(found)
+            return Info(title: appTitle(app), icon: NSWorkspace.shared.icon(forFile: app.path), symbol: "app.fill")
         }
         if let (title, symbol) = known[name] { return Info(title: title, icon: nil, symbol: symbol) }
         if name.hasSuffix("-updater") {
@@ -140,6 +147,28 @@ enum ItemPresentation {
         case .review: "hand.raised.fill"
         case .folder: "folder.fill"
         }
+    }
+
+    /// The name people see in Launchpad and the Dock (网易云音乐, not NeteaseMusic).
+    static func appTitle(_ app: URL) -> String {
+        let bundle = Bundle(url: app)
+        // Ask in the user's languages, not 小清's own (it has no zh localization, so the default lookup gives English).
+        var localized: [String: Any] = [:]
+        if let bundle, let language = Bundle.preferredLocalizations(from: bundle.localizations, forPreferences: Locale.preferredLanguages).first,
+           let path = bundle.path(forResource: "InfoPlist", ofType: "strings", inDirectory: nil, forLocalization: language),
+           let strings = NSDictionary(contentsOfFile: path) as? [String: Any] {
+            localized = strings
+        }
+        let info = bundle?.infoDictionary ?? [:]
+        for key in ["CFBundleDisplayName", "CFBundleName"] {
+            if let name = localized[key] as? String ?? info[key] as? String, !name.isEmpty { return name }
+        }
+        return FileManager.default.displayName(atPath: app.path).replacingOccurrences(of: ".app", with: "")
+    }
+
+    static func outermostApp(_ app: URL) -> URL {
+        guard let range = app.path.range(of: ".app/") else { return app }
+        return URL(fileURLWithPath: String(app.path[..<range.lowerBound]) + ".app")
     }
 
     private static func application(for name: String) -> URL? {

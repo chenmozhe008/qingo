@@ -6,4 +6,6 @@ TEST_MACRO="$(dirname "$(xcrun --find swift)")/../lib/swift/host/plugins/testing
 if [[ -f "$TEST_MACRO" ]]; then
   TEST_ARGS=(-Xswiftc -load-plugin-library -Xswiftc "$TEST_MACRO")
 fi
+# Keep test scans out of the real results folder.
+export QINGO_RESULTS_DIR="$(mktemp -d)/results"
 swift test "${TEST_ARGS[@]}" "$@"

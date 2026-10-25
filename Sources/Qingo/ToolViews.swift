@@ -52,10 +52,10 @@ struct ToolResultBanner: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: report.movedCount > 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(report.movedCount > 0 ? Theme.green : Theme.amber)
-                    Text(report.movedCount > 0 ? "已移入废纸篓 \(report.movedCount) 项，共 \(ByteFormat.string(report.movedBytes))" : "没有项目被移动")
+                    Text(report.movedCount > 0 ? "清掉了 \(ByteFormat.string(report.movedBytes))，都在废纸篓里" : "这次没清掉")
                         .font(.system(size: 13.5, weight: .semibold))
                     if report.movedCount > 0 {
-                        Text("清空废纸篓后才会真正释放空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                        Text("清空废纸篓后才真正腾出空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
                     }
                     Spacer()
                     if canUndo { Button("撤销", action: undo).buttonStyle(GhostButtonStyle()).help("把刚才移走的放回原处") }
@@ -563,7 +563,7 @@ struct UninstallView: View {
                               rows: groups.map { ConfirmRow(id: URL(fileURLWithPath: "/" + $0.id), title: $0.id,
                                                             detail: $0.traces.map { ToolText.short($0.url) }.joined(separator: "，"),
                                                             bytes: $0.bytes, warning: nil) },
-                              confirmed: $store.confirmDecided, actionTitle: "确认移入废纸篓", appearance: appearance,
+                              confirmed: $store.confirmDecided, actionTitle: "放进废纸篓", appearance: appearance,
                               onConfirm: store.removeOrphans, onCancel: { store.showConfirm = false })
         } else if let app = store.selectedApp {
             let traces = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }
@@ -607,8 +607,8 @@ struct DevProjectsView: View {
             } else {
                 VStack(spacing: 12) {
                     IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.blue, size: 56)
-                    Text("找出工程里的依赖和构建产物").font(.system(size: 22, weight: .bold)).padding(.top, 8)
-                    Text("会在「\(ToolText.short(store.root))」里查找。代码一个不碰，只列 node_modules、虚拟环境和构建缓存。")
+                    Text("找出工程里能清的构建缓存").font(.system(size: 22, weight: .bold)).padding(.top, 8)
+                    Text("会在「\(ToolText.short(store.root))」里找。代码和依赖一个不碰，只找构建缓存。")
                         .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                     if let message = store.message { Text(message).font(.system(size: 12.5)).foregroundStyle(Theme.amber) }
                     Button { store.scan() } label: { Label("开始扫描", systemImage: "play.fill") }
@@ -756,11 +756,11 @@ struct DevProjectsView: View {
 
     private var confirmSheet: some View {
         let items = store.selectedDecided + store.selectedItems.filter { !store.isDecidable($0) }
-        return TrashConfirmSheet(title: "移入废纸篓",
+        return TrashConfirmSheet(title: "放进废纸篓",
                                  subtitle: "共 \(items.count) 项，\(ByteFormat.string(ScanStore.sum(items)))。放进废纸篓后随时可以恢复。",
                                  rows: items.map { ConfirmRow(id: $0.id, title: artifactTitle($0), detail: ToolText.short($0.url), bytes: $0.bytes,
                                                               warning: store.decisionNotes[$0.id]) },
-                                 confirmed: $store.confirmDecided, actionTitle: "确认移入废纸篓", appearance: appearance,
+                                 confirmed: $store.confirmDecided, actionTitle: "放进废纸篓", appearance: appearance,
                                  onConfirm: store.trashSelected, onCancel: { store.showConfirm = false })
     }
 }

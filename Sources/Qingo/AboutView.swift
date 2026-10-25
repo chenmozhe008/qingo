@@ -141,8 +141,11 @@ struct AboutView: View {
                     Text("Qingo v\(AppInfo.version)").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink2)
                     Text("作者 \(AppInfo.author)").font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
                     Button { NSWorkspace.shared.open(AppInfo.repository) } label: {
-                        Label("GitHub", systemImage: "chevron.left.forwardslash.chevron.right")
-                            .font(.system(size: 12, weight: .semibold))
+                        HStack(spacing: 6) {
+                            GitHubMark(size: 13)
+                            Text("GitHub")
+                        }
+                        .font(.system(size: 12, weight: .semibold))
                     }
                     .buttonStyle(ToolbarButtonStyle(tinted: true))
                     .help(AppInfo.repository.absoluteString)
@@ -172,15 +175,15 @@ struct AboutView: View {
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 8)
                         // Like a system segmented control: the chosen tab is a raised neutral pill, not a colour block.
-                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? Theme.panel : .clear)
-                            .shadow(color: .black.opacity(on ? 0.08 : 0), radius: 2, y: 1))
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? Theme.raised : .clear)
+                            .shadow(color: .black.opacity(on ? 0.12 : 0), radius: 2, y: 1))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(4)
-        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.fill(0.05)))
+        .background(RoundedRectangle(cornerRadius: 11).fill(Theme.fill(0.07)))
     }
 
     // MARK: Intro
@@ -199,7 +202,10 @@ struct AboutView: View {
                 // Open source is a reason to trust a cleaner; make the repository the obvious next click.
                 Button { NSWorkspace.shared.open(AppInfo.repository) } label: {
                     HStack(spacing: 12) {
-                        IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.slate, size: 34)
+                        GitHubMark(size: 20)
+                            .foregroundStyle(.white)
+                            .frame(width: 34, height: 34)
+                            .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Color(red: 0.14, green: 0.16, blue: 0.18)))
                         VStack(alignment: .leading, spacing: 2) {
                             Text("代码完全开源").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
                             Text("github.com/chenmozhe008/qingo").font(.system(size: 12)).foregroundStyle(Theme.ink2)

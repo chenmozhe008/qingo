@@ -415,10 +415,13 @@ enum ChatGuide {
             : ["左上角「企业微信」", "设置", "存储管理", "前往清理"]
     }
 
-    /// What to clean on that page, safest first, and which share of the data it frees.
-    static func steps(for bundleID: String) -> [(title: String, text: String, kind: ChatPart.Kind)] {
-        let media = bundleID == "com.tencent.xinWeChat" ? "聊天记录" : "聊天中的文件"
-        return [("先清「缓存」", "不影响聊天记录，可以放心清。", .cache),
-                ("再看「\(media)」", "按聊天看谁占得多，挑不要的视频和文件删。删了找不回，要留的先另存。", .media)]
+    /// What to click on that page, in order, and which part of the data each step frees.
+    static func steps(for bundleID: String) -> [(title: String, text: String, kinds: [ChatPart.Kind])] {
+        if bundleID == "com.tencent.xinWeChat" {
+            return [("点「缓存」，清理", "都是临时文件，聊天记录不受影响。", [.cache]),
+                    ("点「聊天记录」", "按聊天从大到小排着。不需要的聊天选中删掉；删掉后这台电脑上就没有了，要留的图片和文件先另存。", [.media, .records])]
+        }
+        return [("点「缓存」，清理", "都是临时文件，聊天记录不受影响。", [.cache]),
+                ("点「聊天中的文件」", "按聊天从大到小排着。不需要的文件选中删掉；删掉后这台电脑上就没有了，要留的先另存。", [.media])]
     }
 }

@@ -6,7 +6,7 @@ APP_NAME="小清"
 EXECUTABLE_NAME="Qingo"
 BUNDLE_ID="io.github.chenmozhe008.qingo"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="1.8.0"
+APP_VERSION="1.9.0"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
 # Without that certificate (e.g. a fresh clone), fall back to ad-hoc signing so the build still runs locally.
 if [[ "$CODESIGN_IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$CODESIGN_IDENTITY"; then
