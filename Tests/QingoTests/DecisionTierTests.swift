@@ -11,29 +11,37 @@ struct DecisionTierTests {
     }
 
     @MainActor
-    @Test func decidedItemsArePickedOneByOneNeverBySelectAll() throws {
+    @Test func onlySafeItemsAndLargeFilesAreSelectable() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
         let dependencies = home.appending(path: "Web/node_modules")
         let build = home.appending(path: "Tool/.build")
-        try FileManager.default.createDirectory(at: dependencies, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        let installer = home.appending(path: "Downloads/Old.dmg")
+        for folder in [dependencies, build, installer.deletingLastPathComponent()] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        }
         try Data("{}".utf8).write(to: home.appending(path: "Web/package.json"))
         try Data("// fixture".utf8).write(to: home.appending(path: "Tool/Package.swift"))
         try writeSparse(dependencies.appending(path: "data"), bytes: 60_000_000)
         try Data(repeating: 1, count: 64).write(to: build.appending(path: "object.o"))
+        try writeSparse(installer, bytes: 150_000_000)
 
         let store = ScanStore()
         store.result = try DiskScanner(policy: SafetyPolicy(home: home)).scan(home)
         // Tests share one defaults domain; never inherit another test's last category.
         store.filter = .caches
         let node = try #require(store.result?.items.first { $0.url.path == CanonicalPath.url(dependencies).path })
-        #expect(!node.canTrash && store.isDecidable(node) && store.isSelectable(node))
+        let dmg = try #require(store.result?.items.first { $0.url.path == CanonicalPath.url(installer).path })
+        // Dependencies are never offered (the user can't judge them); a large file is the user's call.
+        #expect(!store.isSelectable(node))
+        #expect(store.isDecidable(dmg) && store.isSelectable(dmg))
         store.selectAllEligible()
         #expect(store.selectedCleanupItems.map(\.url.lastPathComponent) == [".build"])
         store.setCleanupSelected(node, selected: true)
+        store.setCleanupSelected(dmg, selected: true)
         #expect(store.selectedCleanupItems.count == 2)
-        #expect(store.selectedDecidedItems.map(\.id) == [node.id])
+        #expect(store.selectedDecidedItems.map(\.id) == [dmg.id])
+        #expect(!ItemFilter.visible.contains(.review))
     }
 
     @Test func largeFileCanBeTrashedAfterConfirmingButProjectCannot() throws {
@@ -121,13 +129,12 @@ struct DecisionTierTests {
     @Test func cleanupUpdatesResultWithoutRescanAndUndoPutsItBack() async throws {
         let home = try makeHome()
         let build = home.appending(path: "Tool/.build")
-        let dependencies = home.appending(path: "Web/node_modules")
+        let dependencies = home.appending(path: "Downloads/Old.dmg")
         try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
-        try FileManager.default.createDirectory(at: dependencies, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: dependencies.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("// fixture".utf8).write(to: home.appending(path: "Tool/Package.swift"))
-        try Data("{}".utf8).write(to: home.appending(path: "Web/package.json"))
         try Data(repeating: 1, count: 64).write(to: build.appending(path: "object.o"))
-        try writeSparse(dependencies.appending(path: "data"), bytes: 60_000_000)
+        try writeSparse(dependencies, bytes: 150_000_000)
         // The store saves the edited result under this location's key; remove that file afterwards.
         let key = CanonicalPath.url(home).path
         let saved = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -140,14 +147,14 @@ struct DecisionTierTests {
         let store = ScanStore()
         store.setRoot(CanonicalPath.url(home))
         store.result = try DiskScanner(policy: SafetyPolicy(home: home)).scan(home)
-        store.filter = .review
+        store.filter = .large
         let before = try #require(store.result).items.count
         for item in store.result?.items ?? [] where store.isSelectable(item) { store.setCleanupSelected(item, selected: true) }
         #expect(store.selectedCleanupItems.count == 2)
         store.trashSelectedItems()
         while store.isCleaning { try await Task.sleep(for: .milliseconds(20)) }
 
-        #expect(!store.isScanning && store.filter == .review)
+        #expect(!store.isScanning && store.filter == .large)
         #expect(store.result?.items.count == before - 2)
         #expect(store.cleanupReport?.movedCount == 2 && store.undoable.count == 2)
         #expect(!FileManager.default.fileExists(atPath: build.path) && !FileManager.default.fileExists(atPath: dependencies.path))
@@ -155,7 +162,7 @@ struct DecisionTierTests {
         store.undoLastCleanup()
         while store.isRestoring { try await Task.sleep(for: .milliseconds(20)) }
         #expect(FileManager.default.fileExists(atPath: build.appending(path: "object.o").path))
-        #expect(FileManager.default.fileExists(atPath: dependencies.appending(path: "data").path))
+        #expect(FileManager.default.fileExists(atPath: dependencies.path))
         #expect(store.result?.items.count == before && store.undoable.isEmpty)
     }
 }

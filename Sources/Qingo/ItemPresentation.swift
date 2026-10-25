@@ -67,20 +67,7 @@ enum ItemPresentation {
         if name == "Render Files" { return "渲染文件 · \(item.url.deletingLastPathComponent().lastPathComponent)" }
         if name == "CacheClip" { return "渲染缓存 CacheClip" }
         if let model = policy.modelName(item.url) { return "模型 \(model)" }
-        switch policy.historyKind(item.url) {
-        case .conversations:
-            // sessions/2026/08/14 → "8月14日"
-            let parts = item.url.path.split(separator: "/").suffix(2).compactMap { Int($0) }
-            return "\(SafetyPolicy.oldHistoryDays) 天前的对话记录 · " + (parts.count == 2 ? "\(parts[0])月\(parts[1])日" : item.name)
-        case .images:
-            return "\(SafetyPolicy.oldHistoryDays) 天前生成的图片 · " + (item.modified?.formatted(.dateTime.month().day()) ?? item.name)
-        case nil:
-            break
-        }
-        // A read-only row that is one known kind says what it is ("最近的对话记录"), otherwise "本地数据".
-        if !item.canTrash {
-            return DataBreakdown.isKnown(name, app: CreativeApp.of(item)) ? DataBreakdown.describe(name, app: CreativeApp.of(item)).0 : "本地数据"
-        }
+        if !item.canTrash { return "本地数据" }
         if ["logs", "Logs", "log"].contains(name) || item.url.path.contains("/Library/Logs/") { return "日志" }
         if ["Crashpad", "crashpad"].contains(name) { return "崩溃报告" }
         if name == "cli-connector-cache" { return "连接器下载缓存" }

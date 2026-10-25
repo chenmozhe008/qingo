@@ -202,15 +202,6 @@ enum ToolText {
         return Date().timeIntervalSince(date) > 180 * 86_400
     }
 
-    /// "7 个月没动过", or "今天改过 / 3 天前改过" when recent.
-    static func untouched(_ date: Date?) -> String {
-        guard let date else { return "不知道上次修改时间" }
-        let days = Int(Date().timeIntervalSince(date) / 86_400)
-        if Calendar.current.isDateInToday(date) { return "今天改过" }
-        if days < 30 { return "\(max(days, 1)) 天前改过" }
-        if days < 365 { return "\(days / 30) 个月没动过" }
-        return days < 730 ? "一年多没动过" : "\(days / 365) 年多没动过"
-    }
 }
 
 private struct ToolTopBar<Trailing: View>: View {
@@ -421,7 +412,7 @@ struct UninstallView: View {
                     }
                     let toolData = traces.filter { $0.kind == .toolData }
                     if toolData.count > 1 {
-                        mergedRow("工具数据", traces: toolData, amber: true, open: $store.showToolData)
+                        mergedRow("工具数据", traces: toolData, amber: false, open: $store.showToolData)
                         if store.showToolData {
                             ForEach(toolData) { trace in traceRow(trace).padding(.leading, 30) }
                         }
@@ -455,7 +446,8 @@ struct UninstallView: View {
         let kinds = traces.reduce(into: [String]()) { names, trace in
             if !names.contains(trace.kind.title) { names.append(trace.kind.title) }
         }
-        let detail = amber ? "对话、模型、设置等，默认不删，共 \(traces.count) 处" : kinds.joined(separator: "、") + "，共 \(traces.count) 处"
+        let detail = traces.contains { $0.kind == .toolData } ? "它的对话、模型和设置，一起删除，共 \(traces.count) 处"
+            : kinds.joined(separator: "、") + "，共 \(traces.count) 处"
         return HStack(spacing: 12) {
             ToolCheckbox(on: picked > 0, amber: amber, partial: picked > 0 && picked < traces.count)
             VStack(alignment: .leading, spacing: 3) {
@@ -485,15 +477,11 @@ struct UninstallView: View {
 
     private func traceRow(_ trace: AppTrace) -> some View {
         let on = trace.kind == .app || store.picked.contains(trace.id)
-        let tool = trace.kind == .toolData
         return HStack(spacing: 12) {
-            ToolCheckbox(on: on, amber: tool)
+            ToolCheckbox(on: on)
                 .opacity(trace.kind == .app ? 0.6 : 1)
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 8) {
-                    Text(trace.kind.title).font(.system(size: 13.5, weight: .medium))
-                    if tool { ToolTag(text: "默认不删", tint: Theme.amber).scaleEffect(0.9, anchor: .leading) }
-                }
+                Text(trace.kind.title).font(.system(size: 13.5, weight: .medium))
                 Text(ToolText.short(trace.url)).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
@@ -505,7 +493,7 @@ struct UninstallView: View {
         .contentShape(Rectangle())
         .onTapGesture { store.toggle(trace) }
         .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([trace.url]) } }
-        .help(trace.kind == .app ? "卸载就是把 App 本身放进废纸篓" : tool ? "工具的对话、模型等数据，确认不要了再勾" : "")
+        .help(trace.kind == .app ? "卸载就是把 App 本身放进废纸篓" : "")
     }
 
     private var orphanDetail: some View {
@@ -514,7 +502,7 @@ struct UninstallView: View {
             VStack(alignment: .leading, spacing: 0) {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("已删除应用的残留").font(.system(size: 20, weight: .bold))
-                    Text("这些文件夹按 App 的标识命名，但 Mac 上已经找不到同一家厂商的 App 了。删之前看一眼名字，拿不准就留着。")
+                    Text("这些 App 已经删掉了，留下的设置和缓存没用了，可以放心清。")
                         .font(.system(size: 13)).foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -526,7 +514,7 @@ struct UninstallView: View {
                 }
                 ForEach(groups) { group in
                     HStack(spacing: 12) {
-                        ToolCheckbox(on: store.pickedOrphans.contains(group.id), amber: true)
+                        ToolCheckbox(on: store.pickedOrphans.contains(group.id))
                         VStack(alignment: .leading, spacing: 3) {
                             Text(group.id).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
                             Text(Array(Set(group.traces.map(\.kind.title))).sorted().joined(separator: "、") + "，共 \(group.traces.count) 处")
@@ -580,15 +568,16 @@ struct UninstallView: View {
             TrashConfirmSheet(title: "删除残留", subtitle: "共 \(groups.count) 项，\(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes }))。放进废纸篓后随时可以恢复。",
                               rows: groups.map { ConfirmRow(id: URL(fileURLWithPath: "/" + $0.id), title: $0.id,
                                                             detail: $0.traces.map { ToolText.short($0.url) }.joined(separator: "，"),
-                                                            bytes: $0.bytes, warning: "对应的 App 已经不在了，确认不再需要") },
+                                                            bytes: $0.bytes, warning: nil) },
                               confirmed: $store.confirmDecided, actionTitle: "确认移入废纸篓", appearance: appearance,
                               onConfirm: store.removeOrphans, onCancel: { store.showConfirm = false })
         } else if let app = store.selectedApp {
             let traces = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }
             TrashConfirmSheet(title: "卸载 \(app.name)",
-                              subtitle: "共 \(traces.count) 项，\(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes }))。放进废纸篓后随时可以恢复。",
+                              subtitle: "共 \(traces.count) 项，\(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes }))"
+                                + (traces.contains { $0.kind == .toolData } ? "，包括它的对话和设置" : "") + "。放进废纸篓后随时可以恢复。",
                               rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
-                                                            warning: $0.kind == .toolData ? "工具的对话、模型等数据，删了就没有了" : nil) },
+                                                            warning: nil) },
                               confirmed: $store.confirmDecided, actionTitle: "卸载", appearance: appearance,
                               onConfirm: store.uninstall, onCancel: { store.showConfirm = false })
         }
@@ -645,51 +634,25 @@ struct DevProjectsView: View {
     }
 
     private func content(_ result: DevScanResult) -> some View {
-        let shown = store.projects(in: store.filter)
         let total = ScanStore.sum(result.projects.flatMap(\.artifacts))
         return ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 12) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(result.projects.isEmpty ? "没有发现占地方的依赖和构建产物" : "依赖和构建产物共 \(ByteFormat.string(total))")
+                    Text(result.projects.isEmpty ? "没有需要清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存可以放心清理")
                         .font(.system(size: 24, weight: .bold))
-                    Text("青色的构建缓存可以放心清，下次运行会自动重新生成，「全选」只选这些。黄色的依赖和虚拟环境删了要重新安装，正在用的工程（包括每天定时自动运行的）别删。代码一个不碰。")
+                    Text("都是工程运行、编译时自动生成的缓存，删了下次会重新生成。代码、依赖和设置一个不碰。")
                         .font(.system(size: 13)).foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                if !result.projects.isEmpty {
-                    HStack(spacing: 10) {
-                        Picker("筛选", selection: $store.filter) {
-                            ForEach(DevStore.IdleFilter.allCases) { filter in
-                                Text("\(title(filter)) \(store.projects(in: filter).count)").tag(filter)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .frame(width: 380)
-                        Spacer()
-                    }
-                }
                 ToolResultBanner(report: store.report, message: store.message, canUndo: !store.undoable.isEmpty,
                                  undo: store.undo, close: { store.report = nil; store.message = nil })
-                if shown.isEmpty && !result.projects.isEmpty {
-                    Text("这个范围里没有工程。").font(.system(size: 13.5)).foregroundStyle(Theme.ink2).padding(.top, 20)
-                }
-                ForEach(shown) { project in projectCard(project) }
-                Text("产物合计不到 20 MB 的工程不列出。").font(.system(size: 12)).foregroundStyle(Theme.ink3).padding(.top, 4)
+                ForEach(result.projects) { project in projectCard(project) }
             }
             .padding(.horizontal, 26)
             .padding(.vertical, 6)
             .padding(.bottom, 16)
             }
-        }
-    }
-
-    private func title(_ filter: DevStore.IdleFilter) -> String {
-        switch filter {
-        case .all: "全部"
-        case .threeMonths: "3 个月以上没动"
-        case .sixMonths: "半年以上没动"
         }
     }
 
@@ -711,7 +674,6 @@ struct DevProjectsView: View {
     }
 
     private func projectCard(_ project: DevProject) -> some View {
-        let stale = (project.modified.map { Date().timeIntervalSince($0) > 90 * 86_400 }) ?? false
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.blue, size: 32)
@@ -719,7 +681,6 @@ struct DevProjectsView: View {
                     Text(project.name).font(.system(size: 14.5, weight: .semibold))
                     Text(ToolText.short(project.id)).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.middle)
                 }
-                ToolTag(text: ToolText.untouched(project.modified), tint: stale ? Theme.amber : Theme.ink3).padding(.leading, 6)
                 Spacer(minLength: 8)
                 Text(ByteFormat.string(project.bytes)).font(.system(size: 15, weight: .bold)).monospacedDigit()
             }
@@ -732,7 +693,6 @@ struct DevProjectsView: View {
 
     private func artifactRow(_ group: ArtifactGroup, project: DevProject) -> some View {
         let first = group.items[0]
-        let decided = store.isDecidable(first)
         let pickedCount = group.items.filter { store.selected.contains($0.id) }.count
         let failure = group.items.compactMap { store.failureReasons[$0.id] }.first
         let relative = { (item: ScanItem) in String(item.url.path.dropFirst(project.id.path.count + 1)) }
@@ -744,26 +704,25 @@ struct DevProjectsView: View {
         let detail = failure.map { "没清掉：\($0)" }
             ?? (group.items.count == 1 ? relative(first) : "在 " + places.prefix(2).joined(separator: "、") + (places.count > 2 ? " 等处" : ""))
         return HStack(spacing: 12) {
-            ToolCheckbox(on: pickedCount > 0, amber: decided, partial: pickedCount > 0 && pickedCount < group.items.count)
+            ToolCheckbox(on: pickedCount > 0, partial: pickedCount > 0 && pickedCount < group.items.count)
             VStack(alignment: .leading, spacing: 3) {
                 Text(group.items.count > 1 ? "\(artifactTitle(first)) \(group.items.count) 处" : artifactTitle(first))
                     .font(.system(size: 13.5, weight: .medium))
                 Text(detail).font(.system(size: 12)).foregroundStyle(failure == nil ? Theme.ink3 : Theme.amber).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
-            ToolTag(text: decided ? "确认后可删" : "可重新生成", tint: decided ? Theme.amber : Theme.cyan)
             Text(ByteFormat.string(ScanStore.sum(group.items))).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
                 .frame(width: 80, alignment: .trailing)
         }
         .padding(.leading, 62)
         .padding(.trailing, 18)
         .padding(.vertical, 9)
-        .background(pickedCount > 0 ? (decided ? Theme.amber : Theme.cyan).opacity(0.07) : .clear)
+        .background(pickedCount > 0 ? Theme.cyan.opacity(0.07) : .clear)
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         .contentShape(Rectangle())
         .onTapGesture { withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.toggle(group.items) } }
         .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting(group.items.map(\.url)) } }
-        .help(store.decisionNotes[first.id] ?? first.note)
+        .help(first.note)
     }
 
     private func artifactTitle(_ item: ScanItem) -> String {
@@ -787,21 +746,16 @@ struct DevProjectsView: View {
 
     private var footer: some View {
         let items = store.selectedItems
-        let decided = store.selectedDecided.count
-        let safe = store.safeInFilter
-        let allSafe = !safe.isEmpty && safe.allSatisfy { store.selected.contains($0.id) }
+        let all = store.allArtifacts
+        let allPicked = !all.isEmpty && items.count == all.count
         return ToolFooter(title: items.isEmpty ? "选择要清理的项目" : "已选 \(items.count) 项，共 \(ByteFormat.string(ScanStore.sum(items)))",
-                          detail: items.isEmpty ? "「全选」只选能放心清的构建缓存"
-                              : decided > 0 ? "其中 \(decided) 项删了要重新安装，确认时会逐条列出" : "移入废纸篓后仍可恢复；清空后才会释放空间。") {
-            if !safe.isEmpty {
-                Button(allSafe ? "取消全选" : "全选") { withAnimation(.easeOut(duration: 0.15)) { allSafe ? store.clearSafe() : store.selectSafe() } }
+                          detail: "都能放心清，放进废纸篓后随时可以恢复。") {
+            if !all.isEmpty {
+                Button(allPicked ? "取消全选" : "全选") { withAnimation(.easeOut(duration: 0.15)) { allPicked ? store.clearSelection() : store.selectAll() } }
                     .buttonStyle(ToolbarButtonStyle(large: true))
                     .keyboardShortcut("a", modifiers: .command)
             }
-            if !items.isEmpty, decided > 0 || !allSafe {
-                Button("取消选择") { withAnimation(.easeOut(duration: 0.15)) { store.clearSelection() } }.buttonStyle(ToolbarButtonStyle(large: true))
-            }
-            Button(store.isCleaning ? "正在清理…" : "移入废纸篓…") { store.reviewCleanup() }
+            Button(store.isCleaning ? "正在清理…" : items.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(items)))…") { store.reviewCleanup() }
                 .buttonStyle(ToolbarButtonStyle(prominent: !items.isEmpty, large: true))
                 .disabled(items.isEmpty || store.isCleaning)
         }

@@ -19,12 +19,12 @@ struct DevScanResult: Codable, Sendable {
     let scannedAt: Date
 }
 
-/// Finds projects under a folder and the regenerable / reinstallable output inside them.
-/// Classification is `SafetyPolicy`'s: caches are the first tier, node_modules and virtual environments the second.
+/// Finds projects under a folder and the regenerable build output inside them (`SafetyPolicy.cacheDescription`).
+/// Dependencies and virtual environments are not listed: people who don't code can't reinstall them.
 struct DevScanner: Sendable {
     let policy: SafetyPolicy
     /// Projects whose output adds up to less than this are not worth a card.
-    static let minProjectBytes: Int64 = 20_000_000
+    static let minProjectBytes: Int64 = 5_000_000
     static let markers = ["package.json", "Cargo.toml", "Package.swift", "pyproject.toml", "requirements.txt", "setup.py",
                           "go.mod", "build.gradle", "build.gradle.kts", "Podfile", "pubspec.yaml", ".git"]
     /// How deep to look for projects outside any project; deeper folders are rarely code roots.
@@ -67,7 +67,7 @@ struct DevScanner: Sendable {
             return
         }
         let name = url.lastPathComponent
-        if name == ".git" { return }
+        if [".git", "node_modules", ".venv", "venv"].contains(name) { return }
         guard let children = try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil) else { return }
 
         var owner = project
@@ -88,18 +88,13 @@ struct DevScanner: Sendable {
         }
     }
 
-    /// A build cache (first tier) or dependencies / virtual environment (second tier), measured; nil for anything else.
+    /// A regenerable build cache, measured; nil for anything else. node_modules and virtual environments are
+    /// skipped whole (not descended into either), so nothing inside them is listed.
     private func artifact(_ url: URL, identity: FileIdentity, modified: Date, state: inout WalkState) -> ScanItem? {
         let movable = access(url.path, W_OK) == 0 && access(url.deletingLastPathComponent().path, W_OK) == 0
-        if movable, let note = policy.cacheDescription(for: url, isDirectory: true) {
-            let bytes = measure(url, state: &state)
-            return ScanItem(id: url, url: url, kind: .cache, risk: policy.risk(for: url, kind: .cache), bytes: bytes,
-                            note: note, canTrash: true, identity: identity, modified: modified)
-        }
-        let candidate = ScanItem(id: url, url: url, kind: .review, risk: .c, bytes: 0, note: "", canTrash: false, identity: identity)
-        guard policy.decisionNote(for: candidate) != nil, let note = policy.reviewDescription(for: url, isDirectory: true) else { return nil }
-        return ScanItem(id: url, url: url, kind: .review, risk: .c, bytes: measure(url, state: &state),
-                        note: note, canTrash: false, identity: identity, modified: modified)
+        guard movable, let note = policy.cacheDescription(for: url, isDirectory: true) else { return nil }
+        return ScanItem(id: url, url: url, kind: .cache, risk: policy.risk(for: url, kind: .cache), bytes: measure(url, state: &state),
+                        note: note, canTrash: true, identity: identity, modified: modified)
     }
 
     private func measure(_ url: URL, state: inout WalkState) -> Int64 {
@@ -121,18 +116,12 @@ struct DevScanner: Sendable {
 /// State of the "开发工程" page.
 @MainActor
 final class DevStore: ObservableObject {
-    enum IdleFilter: Int, CaseIterable, Identifiable {
-        case all = 0, threeMonths = 3, sixMonths = 6
-        var id: Int { rawValue }
-    }
-
     @Published var result: DevScanResult? {
         didSet { decisionNotes = Self.notes(for: result, policy: policy) }
     }
     @Published private(set) var decisionNotes: [URL: String] = [:]
     @Published var isScanning = false
     @Published var scannedCount = 0
-    @Published var filter: IdleFilter = .all
     @Published var selected: Set<URL> = []
     @Published var expanded: Set<String> = []
     @Published var showConfirm = false
@@ -155,13 +144,6 @@ final class DevStore: ObservableObject {
 
     // MARK: Derived
 
-    func projects(in filter: IdleFilter) -> [DevProject] {
-        guard let projects = result?.projects else { return [] }
-        guard filter != .all else { return projects }
-        let cutoff = Calendar.current.date(byAdding: .month, value: -filter.rawValue, to: Date()) ?? Date()
-        return projects.filter { ($0.modified ?? Date()) < cutoff }
-    }
-
     var allArtifacts: [ScanItem] { result?.projects.flatMap(\.artifacts) ?? [] }
     var selectedItems: [ScanItem] { allArtifacts.filter { selected.contains($0.id) } }
     var selectedDecided: [ScanItem] { selectedItems.filter { decisionNotes[$0.id] != nil } }
@@ -183,16 +165,11 @@ final class DevStore: ObservableObject {
         if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }
     }
 
-    /// Regenerable build output in the projects the filter shows: the only thing "全选" picks.
-    /// Dependencies and virtual environments need reinstalling and are picked one by one.
-    var safeInFilter: [ScanItem] { projects(in: filter).flatMap(\.artifacts).filter { !isDecidable($0) } }
-
-    func selectSafe() {
+    /// Everything listed is regenerable build output, so all of it starts picked.
+    func selectAll() {
         guard !isCleaning else { return }
-        selected.formUnion(safeInFilter.map(\.id))
+        selected = Set(allArtifacts.map(\.id))
     }
-
-    func clearSafe() { selected.subtract(safeInFilter.map(\.id)) }
 
     func clearSelection() { selected.removeAll() }
 
@@ -238,6 +215,7 @@ final class DevStore: ObservableObject {
                 switch output {
                 case .success(let value):
                     self.result = value
+                    self.selectAll()
                     self.save()
                 case .failure(let error):
                     self.message = error is CancellationError ? "扫描已取消。" : "没能读取这个文件夹，请换一个试试。"
@@ -326,6 +304,14 @@ final class DevStore: ObservableObject {
     private func load() {
         guard let data = try? Data(contentsOf: savedURL), let value = try? JSONDecoder().decode(DevScanResult.self, from: data),
               value.root.path == root.path else { return }
-        result = value
+        // Results saved before 1.5 may hold dependencies; only build caches are kept.
+        var cachesOnly = value
+        cachesOnly.projects = value.projects.compactMap { project in
+            var project = project
+            project.artifacts = project.artifacts.filter(\.canTrash)
+            return project.artifacts.isEmpty ? nil : project
+        }
+        result = cachesOnly
+        selectAll()
     }
 }

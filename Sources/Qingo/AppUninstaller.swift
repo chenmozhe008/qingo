@@ -137,8 +137,9 @@ struct AppUninstaller: Sendable {
         FileManager.default.fileExists(atPath: library.appending(path: "Containers/\(app.bundleID)").path)
     }
 
-    /// Kinds the uninstall page picks by default; a tool's own data waits for the user.
-    static func pickedByDefault(_ trace: AppTrace) -> Bool { trace.kind != .toolData }
+    /// Uninstalling means not wanting the app any more: everything it left goes, its own data included
+    /// (用户定，2026-10-25). It all lands in the Trash and can be put back.
+    static func pickedByDefault(_ trace: AppTrace) -> Bool { true }
 
     private func namespaced(in folder: String, id: String, suffix: String) -> [URL] {
         let directory = library.appending(path: folder)
@@ -384,6 +385,8 @@ final class UninstallStore: ObservableObject {
             await MainActor.run {
                 guard let self else { return }
                 self.orphans = orphans
+                // The rules that find these are strict enough to clean them without asking.
+                self.pickedOrphans = Set(orphans.map(\.id))
                 self.isLoading = false
                 Self.saveCache(self.apps)
             }
@@ -445,7 +448,7 @@ final class UninstallStore: ObservableObject {
         selectedID = nil
         report = nil
         message = nil
-        pickedOrphans = []
+        pickedOrphans = Set((orphans ?? []).map(\.id))
     }
 
     private func pickDefaults(for app: InstalledApp) {

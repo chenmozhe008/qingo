@@ -71,7 +71,7 @@ struct MainView: View {
             Text("看看磁盘空间都去哪了")
                 .font(.system(size: 34, weight: .bold))
                 .padding(.top, 10)
-            Text("扫描只读不改。能清的由你勾选，拿不准的只做提示。")
+            Text("扫描只读不改。列出来的都能放心清，拿不准的不碰。")
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.ink2)
                 .padding(.top, 10)
@@ -282,10 +282,11 @@ struct MainView: View {
     }
 
     private var liveFeed: some View {
-        let notable = store.liveFound.filter { $0.bytes >= 5_000_000 }
+        // Only what the result will show: cleanable items and large files, not data that stays.
+        let notable = store.liveFound.filter { $0.bytes >= 5_000_000 && ($0.canTrash || $0.kind == .largeFile || $0.kind == .project) }
         let recent = Array(notable.suffix(7).reversed())
         let caches = store.liveFound.filter { ItemFilter.caches.contains($0) }
-        let creative = store.liveFound.filter { ItemFilter.creative.contains($0) }
+        let creative = store.liveFound.filter { ItemFilter.creative.contains($0) && $0.canTrash }
         let large = store.liveFound.filter { ItemFilter.large.contains($0) }
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
@@ -399,7 +400,7 @@ struct MainView: View {
                     if store.result != nil {
                         sectionHeader("分类").padding(.top, 12)
                     }
-                    ForEach(store.result == nil ? [] : ItemFilter.allCases) { category in
+                    ForEach(store.result == nil ? [] : ItemFilter.visible) { category in
                         let items = store.items(in: category)
                         switch category {
                         case .chat:
@@ -407,8 +408,9 @@ struct MainView: View {
                                 categoryRow(category, bytes: chats.reduce(0) { $0 + ($1.bytes ?? 0) })
                             }
                         case .creative:
+                            // Only what can be cleaned counts; conversations and works are not shown.
                             if !items.isEmpty {
-                                categoryRow(category, bytes: ScanStore.sum(items))
+                                categoryRow(category, bytes: ScanStore.sum(items.filter(\.canTrash)))
                             }
                         default:
                             // Keep the sidebar in step with the six overview cards.
@@ -737,15 +739,15 @@ struct MainView: View {
                 chatStatCard(result)
             }
             GridRow {
-                statCard(.review)
                 statCard(.large, unavailable: result.isQuickScan)
-                cleanableSummaryCard
+                cleanableSummaryCard.gridCellColumns(2)
             }
         }
     }
 
     private func statCard(_ category: ItemFilter, unavailable: Bool = false) -> some View {
-        let items = store.items(in: category)
+        // The creative card counts only what can be cleaned there.
+        let items = category == .creative ? store.items(in: category).filter(\.canTrash) : store.items(in: category)
         let (number, unit) = splitBytes(ScanStore.sum(items))
         let selected = store.filter == category
         let detail: String
@@ -754,8 +756,7 @@ struct MainView: View {
         } else if items.isEmpty {
             detail = "没有发现"
         } else if category == .creative {
-            let here = ScanStore.sum(items.filter(\.canTrash))
-            detail = here > 0 ? "\(unit) · \(ByteFormat.string(here)) 可以清理" : "\(unit) · 只统计，不删除"
+            detail = "\(unit) · \(Set(items.compactMap { CreativeApp.of($0)?.id }).count) 个工具"
         } else {
             detail = "\(unit) · \(items.count) 项"
         }
@@ -1158,34 +1159,27 @@ struct MainView: View {
 
     // MARK: Creative apps
 
+    /// Only what can safely go is listed, one card per tool. Conversations, works, models and settings are not
+    /// shown as rows; one line says how much of that there is and that it stays (用户：别让用户判断).
     private func creativeView(_ result: ScanResult) -> some View {
-        let items = store.items(in: .creative).filter { $0.bytes > 0 || CreativeApp.isReviewCache($0.url) }
-        let found = CreativeApp.allCases.filter { app in items.contains { CreativeApp.of($0) == app } }
-        let idle = CreativeApp.allCases.filter { $0.isInstalled && !found.contains($0) }
-        let cleanable = ScanStore.sum(items.filter(\.canTrash))
-        let decided = ScanStore.sum(items.filter(store.isDecidable))
-        let readOnly = ScanStore.sum(items.filter { !$0.canTrash && !store.isDecidable($0) })
-        let headline: String = {
-            if found.isEmpty { return "没有发现创作和 AI 工具的占用" }
-            if cleanable == 0 { return "\(found.count) 个工具共占用 \(ByteFormat.string(readOnly))" }
-            return "\(ByteFormat.string(cleanable)) 可以在这里清理"
-        }()
-        var notes: [String] = []
-        if cleanable > 0, readOnly > 0 { notes.append("另有 \(ByteFormat.string(readOnly)) 是工程、模型和对话等数据，只统计、不删除。") }
-        if cleanable == 0, readOnly > 0 { notes.append("都是工程、模型和对话等数据，只统计、不删除，要清理请在各自软件里操作。") }
-        if decided > 0 { notes.append("下载的模型有 \(ByteFormat.string(decided)) 可以挑着删，删了要重新下载。") }
-        if result.isQuickScan { notes.append("Final Cut 渲染文件和达芬奇 CacheClip 需要完整扫描才能找到。") }
+        let items = store.items(in: .creative)
+        let cleanableItems = items.filter(\.canTrash).filter { $0.bytes > 0 }
+        let found = CreativeApp.allCases.filter { app in cleanableItems.contains { CreativeApp.of($0) == app } }
+        let quiet = CreativeApp.allCases.filter { app in
+            !found.contains(app) && (app.isInstalled || items.contains { CreativeApp.of($0) == app })
+        }
+        let cleanable = ScanStore.sum(cleanableItems)
+        let kept = ScanStore.sum(items.filter { !$0.canTrash })
         return ScrollViewReader { proxy in
         ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 14) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text(headline).font(.system(size: 24, weight: .bold))
-                    if !notes.isEmpty {
-                        Text(notes.joined(separator: ""))
-                            .font(.system(size: 13)).foregroundStyle(Theme.ink2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
+                    Text(cleanable > 0 ? "\(ByteFormat.string(cleanable)) 可以放心清理" : "没有需要清理的").font(.system(size: 24, weight: .bold))
+                    Text(kept > 0 ? "都是会自动重新生成的缓存和日志。另有 \(ByteFormat.string(kept)) 是对话、作品和设置，不会动。"
+                                  : "都是会自动重新生成的缓存和日志。")
+                        .font(.system(size: 13)).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.bottom, 4)
                 banners
@@ -1195,15 +1189,15 @@ struct MainView: View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(group.rawValue).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink2)
                             Spacer()
-                            Text(ByteFormat.string(ScanStore.sum(items.filter { app in apps.contains { CreativeApp.of(app) == $0 } })))
+                            Text(ByteFormat.string(ScanStore.sum(cleanableItems.filter { item in apps.contains { CreativeApp.of(item) == $0 } })))
                                 .font(.system(size: 12.5)).monospacedDigit().foregroundStyle(Theme.ink3)
                         }
                         .padding(.top, 6)
-                        ForEach(apps) { app in creativeGroup(app, items: items.filter { CreativeApp.of($0) == app }).id(app.id) }
+                        ForEach(apps) { app in creativeGroup(app, items: cleanableItems.filter { CreativeApp.of($0) == app }).id(app.id) }
                     }
                 }
-                if !idle.isEmpty {
-                    creativeIdleCard(idle)
+                if !quiet.isEmpty {
+                    creativeIdleCard(quiet)
                 }
                 creativeCoverage
             }
@@ -1217,10 +1211,10 @@ struct MainView: View {
         }
     }
 
-    /// Installed tools with nothing on disk worth a row, in one line instead of empty cards.
+    /// Recognized tools with nothing to clean right now, in one line instead of empty cards.
     private func creativeIdleCard(_ apps: [CreativeApp]) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Label("这些软件已安装，没发现明显占用", systemImage: "checkmark.circle.fill")
+            Label("这些软件现在没有需要清理的", systemImage: "checkmark.circle.fill")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(Theme.green)
             FlowLayout(spacing: 8) {
@@ -1464,70 +1458,45 @@ struct MainView: View {
         }
     }
 
+    /// A tool's card: its cleanable parts, several of them as one row with details on demand.
     private func creativeGroup(_ app: CreativeApp, items: [ScanItem]) -> some View {
-        VStack(spacing: 0) {
+        let key = "creative:\(app.id)"
+        return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if let icon = ItemPresentation.appIcon(bundleID: app.bundleID) {
                     Image(nsImage: icon).resizable().frame(width: 40, height: 40)
                 } else {
                     IconTile(symbol: app.group.symbol, tint: groupTint(app.group), size: 40)
                 }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(app.title).font(.system(size: 15.5, weight: .semibold))
-                    Text(items.contains(where: { store.policy.modelName($0.url) != nil }) ? "下载的模型可以挑着删，删了要重新下载"
-                         : items.contains(where: \.canTrash) || app.cleanHow != nil ? app.hint : "\(app.group.dataNote)只统计、不删除")
-                        .font(.system(size: 12)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
-                }
+                Text(app.title).font(.system(size: 15.5, weight: .semibold))
                 Spacer(minLength: 8)
                 Text(ByteFormat.string(ScanStore.sum(items))).font(.system(size: 19, weight: .bold)).monospacedDigit()
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            // Several parts of one kind read as one row, details on demand: the regenerable caches, logs and
-            // crash reports together; items to decide about per kind ("30 天前的对话记录"). Models stay one per row.
-            ForEach(rowGroups(app, items: items), id: \.key) { group in
-                if group.items.count > 1 {
-                    summaryRow(app, group: group)
-                    if store.expandedGroups.contains(group.key) {
-                        ForEach(group.items) { item in creativeRow(item, app: app).padding(.leading, 30) }
-                    }
-                } else {
-                    creativeRow(group.items[0], app: app)
-                    if store.expandedGroups.contains(store.breakdownKey(group.items[0])) {
-                        breakdownPanel(group.items[0], app: app)
-                    }
+            if items.count > 1 {
+                summaryRow(key: key, items: items)
+                if store.expandedGroups.contains(key) {
+                    ForEach(items) { item in creativeRow(item).padding(.leading, 30) }
                 }
+            } else {
+                ForEach(items) { item in creativeRow(item) }
             }
         }
         .glass()
     }
 
-    private func creativeRow(_ item: ScanItem, app: CreativeApp) -> some View {
+    private func creativeRow(_ item: ScanItem) -> some View {
         let picked = store.selectedCleanupIDs.contains(item.id)
-        let selectable = store.isSelectable(item)
         let failure = store.failureReasons[item.id]
-        let tint = selectionTint(item)
         return HStack(spacing: 12) {
             checkbox(item)
             VStack(alignment: .leading, spacing: 3) {
                 Text(ItemPresentation.partTitle(for: item)).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
-                Text(failure.map { "没清掉：\($0)" } ?? (store.isDecidable(item) ? tagText(item) : shortPath(item.url)))
+                Text(failure.map { "没清掉：\($0)" } ?? shortPath(item.url))
                     .font(.system(size: 12)).foregroundStyle(failure == nil ? Theme.ink3 : Theme.amber).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 10)
-            if item.canTrash {
-                capsuleTag("可在此清理", tint: Theme.cyan)
-            } else if store.isDecidable(item) {
-                capsuleTag("确认后可删", tint: Theme.amber)
-            } else {
-                // Read-only data: explain what is inside and what to do about each part, not just open a folder.
-                let open = store.expandedGroups.contains(store.breakdownKey(item))
-                Button { withAnimation(.easeOut(duration: 0.18)) { store.toggleBreakdown(item) } } label: {
-                    capsuleTag(open ? "收起" : "里面有什么", tint: Theme.blue)
-                }
-                .buttonStyle(.plain)
-                .help("看看里面都是什么、哪些能删、怎么删")
-            }
             Text(ByteFormat.string(item.bytes))
                 .font(.system(size: 14, weight: .medium))
                 .monospacedDigit()
@@ -1536,100 +1505,19 @@ struct MainView: View {
         .padding(.leading, 70)
         .padding(.trailing, 18)
         .padding(.vertical, 11)
-        .background(picked ? tint.opacity(0.08) : .clear)
+        .background(picked ? Theme.cyan.opacity(0.08) : .clear)
         .background(HoverFill(tracker: store.hover, id: item.id, color: Theme.fill(0.05)))
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         .contentShape(Rectangle())
         .onTapGesture {
-            if selectable {
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.setCleanupSelected(item, selected: !picked) }
-            } else if !item.canTrash {
-                withAnimation(.easeOut(duration: 0.18)) { store.toggleBreakdown(item) }
-            }
+            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.setCleanupSelected(item, selected: !picked) }
         }
-        .onHover { inside in
-            store.hover.update(item.id, inside: inside)
-        }
+        .onHover { inside in store.hover.update(item.id, inside: inside) }
         .contextMenu { Button("在访达中显示") { reveal(item) } }
     }
 
-    /// "里面有什么": each part of a read-only data folder in plain words, with what to do about it.
-    private func breakdownPanel(_ item: ScanItem, app: CreativeApp) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if let parts = store.breakdowns[item.id] {
-                ForEach(parts) { part in
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text(part.label).font(.system(size: 13.5, weight: .medium))
-                                if part.label != part.name, part.name != "其他" {
-                                    Text(part.name).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.ink3)
-                                }
-                            }
-                            Text(part.advice).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        Spacer(minLength: 10)
-                        Text(ByteFormat.string(part.bytes)).font(.system(size: 13, weight: .medium)).monospacedDigit()
-                            .frame(width: 84, alignment: .trailing)
-                    }
-                    .padding(.vertical, 8)
-                    .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-                    .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([part.id]) } }
-                }
-                HStack(spacing: 8) {
-                    Text("这里不直接删这些数据，免得误删你的对话和作品。").font(.system(size: 12)).foregroundStyle(Theme.ink3)
-                    Spacer()
-                    if app.isInstalled, !app.bundleID.isEmpty {
-                        Button("打开\(app.shortName)") { store.openApp(bundleID: app.bundleID) }.buttonStyle(GhostButtonStyle())
-                    }
-                    Button("在访达中显示") { reveal(item) }.buttonStyle(GhostButtonStyle())
-                }
-                .padding(.top, 10)
-            } else {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small)
-                    Text("正在看里面有什么…").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
-                }
-                .padding(.vertical, 10)
-            }
-        }
-        .padding(.leading, 100)
-        .padding(.trailing, 18)
-        .padding(.bottom, 12)
-        .background(Theme.fill(0.03))
-    }
-
-    private struct CreativeRowGroup {
-        let key: String
-        /// "可以清理", or the kind of the items to decide about.
-        let title: String
-        let decided: Bool
-        let items: [ScanItem]
-    }
-
-    /// Cleanable parts first as one group, then items to decide about grouped by kind, then read-only data.
-    private func rowGroups(_ app: CreativeApp, items: [ScanItem]) -> [CreativeRowGroup] {
-        var groups: [CreativeRowGroup] = []
-        let cleanable = items.filter(\.canTrash)
-        if !cleanable.isEmpty { groups.append(CreativeRowGroup(key: "creative:\(app.id)", title: "可以清理", decided: false, items: cleanable)) }
-        var kinds: [String] = []
-        var byKind: [String: [ScanItem]] = [:]
-        for item in items where store.isDecidable(item) {
-            let kind = ItemPresentation.partTitle(for: item).components(separatedBy: " · ").first ?? ""
-            if byKind[kind] == nil { kinds.append(kind) }
-            byKind[kind, default: []].append(item)
-        }
-        groups += kinds.map { CreativeRowGroup(key: "creative:\(app.id):\($0)", title: $0, decided: true, items: byKind[$0]!) }
-        groups += items.filter { !$0.canTrash && !store.isDecidable($0) }
-            .map { CreativeRowGroup(key: $0.url.path, title: "", decided: false, items: [$0]) }
-        return groups
-    }
-
-    /// One row for several parts: "界面缓存、日志、崩溃报告，共 9 处", or "30 天前的对话记录，共 18 处".
-    private func summaryRow(_ app: CreativeApp, group: CreativeRowGroup) -> some View {
-        let items = group.items
-        let key = group.key
+    /// One row for several parts of a tool: "界面缓存、日志、崩溃报告，共 9 处".
+    private func summaryRow(key: String, items: [ScanItem]) -> some View {
         let expanded = store.expandedGroups.contains(key)
         let picked = items.filter { store.selectedCleanupIDs.contains($0.id) }.count
         let kinds = items.sorted { $0.bytes > $1.bytes }.reduce(into: [String]()) { names, item in
@@ -1643,18 +1531,14 @@ struct MainView: View {
                 if expanded { store.expandedGroups.remove(key) } else { store.expandedGroups.insert(key) }
             }
         }
-        let tint = group.decided ? Theme.amber : Theme.cyan
-        let detail = group.decided ? "共 \(items.count) 处，" + (store.decisionNotes[items[0].id] ?? "")
-            : kinds.joined(separator: "、") + "，共 \(items.count) 处"
         return HStack(spacing: 12) {
-            ToolCheckbox(on: picked > 0, amber: group.decided, partial: picked > 0 && picked < items.count)
+            ToolCheckbox(on: picked > 0, partial: picked > 0 && picked < items.count)
             VStack(alignment: .leading, spacing: 3) {
-                Text(group.title).font(.system(size: 14, weight: .medium))
-                Text(failed ? "有的没清掉，展开看原因" : detail)
-                    .font(.system(size: 12)).foregroundStyle(failed ? Theme.amber : Theme.ink3).lineLimit(1).truncationMode(.tail)
+                Text(kinds.joined(separator: "、")).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.tail)
+                Text(failed ? "有的没清掉，展开看原因" : "共 \(items.count) 处，下次打开会自动重新生成")
+                    .font(.system(size: 12)).foregroundStyle(failed ? Theme.amber : Theme.ink3).lineLimit(1)
             }
             Spacer(minLength: 10)
-            capsuleTag(group.decided ? "确认后可删" : "可在此清理", tint: tint)
             Text(ByteFormat.string(ScanStore.sum(items)))
                 .font(.system(size: 14, weight: .medium))
                 .monospacedDigit()
@@ -1672,7 +1556,7 @@ struct MainView: View {
         .padding(.leading, 70)
         .padding(.trailing, 18)
         .padding(.vertical, 11)
-        .background(picked > 0 ? tint.opacity(0.08) : .clear)
+        .background(picked > 0 ? Theme.cyan.opacity(0.08) : .clear)
         .background(HoverFill(tracker: store.hover, id: URL(fileURLWithPath: "/" + key), color: Theme.fill(0.05)))
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         .contentShape(Rectangle())
@@ -1740,10 +1624,8 @@ struct MainView: View {
     }
 
     private var footer: some View {
-        let inFilter = store.eligibleInFilter
-        let allSelected = inFilter.allSatisfy { store.selectedCleanupIDs.contains($0.id) }
+        let allSelected = store.eligibleItems.allSatisfy { store.selectedCleanupIDs.contains($0.id) }
         let empty = store.selectedCleanupItems.isEmpty
-        let quit = store.appsToQuit
         let decided = store.selectedDecidedItems.count
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
@@ -1754,33 +1636,26 @@ struct MainView: View {
                          : empty ? "选择要清理的项目" : "已选 \(store.selectedCleanupItems.count) 项，共 \(ByteFormat.string(store.selectedCleanupBytes))")
                         .font(.system(size: 14, weight: .semibold)).monospacedDigit()
                     Text(empty ? "点一下列表里的项目就能选中"
-                         : !quit.isEmpty ? "清理前请先退出 \(quit.joined(separator: "、"))"
-                         : decided > 0 ? "其中 \(decided) 项删了有影响，确认时会逐条列出"
-                         : "移入废纸篓后仍可恢复；清空后才会释放空间。")
+                         : decided > 0 ? "其中 \(decided) 个大文件由你决定，确认时会逐条列出"
+                         : "都能放心清。正在运行的软件，它的缓存会自动跳过。")
                         .font(.system(size: 12.5))
-                        .foregroundStyle(!quit.isEmpty ? Theme.amber : Theme.ink2)
+                        .foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 0)
             }
             HStack(spacing: 8) {
-                // "全选" only covers regenerable caches; items the user decides about are picked one by one.
-                if !inFilter.isEmpty {
+                // "全选" covers every safe item in every category; large files are picked one by one.
+                if !store.eligibleItems.isEmpty {
                     Button(allSelected ? "取消全选" : "全选") {
-                        withAnimation(.easeOut(duration: 0.15)) { allSelected ? store.clearCleanupSelection() : store.selectAllEligible() }
+                        withAnimation(.easeOut(duration: 0.15)) { allSelected ? store.clearAllSafe() : store.selectAllEligible() }
                     }
                     .keyboardShortcut("a", modifiers: .command)
                 } else if !empty {
                     Button("取消选择") { withAnimation(.easeOut(duration: 0.15)) { store.clearCleanupSelection() } }
                 }
-                if store.filter == .caches {
-                    Button("只选可再生缓存") {
-                        withAnimation(.easeOut(duration: 0.15)) { store.selectReusable() }
-                    }
-                    .help("选择无需退出应用、下次使用时可重新生成或下载的缓存")
-                }
                 Spacer(minLength: 8)
-                Button("移入废纸篓…") { store.reviewCleanup() }
+                Button(empty ? "清理" : "清理 \(ByteFormat.string(store.selectedCleanupBytes))…") { store.reviewCleanup() }
                 .buttonStyle(ToolbarButtonStyle(prominent: !empty, large: true))
                 .disabled(empty || store.isCleaning)
                 .opacity(empty ? 0.6 : 1)
@@ -1868,7 +1743,7 @@ struct MainView: View {
             return [Self.idle(item.modified), cost].compactMap { $0 }.joined(separator: "，")
         }
         guard item.canTrash else { return item.kind.label }
-        return item.risk == .a ? "可重新生成" : "应用缓存，需先退出应用"
+        return "下次使用会自动重新生成"
     }
 
     /// "5 个月没动过" once something has sat untouched for a month; nil when recent or unknown.
@@ -1951,7 +1826,7 @@ struct MainView: View {
         // Items the user decides about go first, each with what deleting it costs.
         let decided = store.selectedDecidedItems
         let items = decided + store.selectedCleanupItems.filter { !store.isDecidable($0) }
-        let quit = store.appsToQuit
+        let quit = store.runningOwners
         let listHeight = items.reduce(CGFloat(0)) { $0 + (store.isDecidable($1) ? 72 : 52) }
         return VStack(alignment: .leading, spacing: 16) {
             HStack(spacing: 14) {
@@ -1967,9 +1842,9 @@ struct MainView: View {
                 }
             }
             if !quit.isEmpty {
-                Label("请先退出这些应用：\(quit.prefix(4).joined(separator: "、"))\(quit.count > 4 ? " 等" : "")", systemImage: "exclamationmark.triangle.fill")
+                Label("\(quit.prefix(4).joined(separator: "、"))\(quit.count > 4 ? " 等" : "")正在运行，它们的缓存这次会跳过", systemImage: "info.circle")
                     .font(.system(size: 13))
-                    .foregroundStyle(Theme.amber)
+                    .foregroundStyle(Theme.ink2)
             }
             ScrollView {
                 LazyVStack(spacing: 0) {

@@ -22,7 +22,7 @@ struct ToolPagesTests {
         try Data("{}".utf8).write(to: web.appending(path: "package.json"))
         try Data("{}".utf8).write(to: package.appending(path: "package.json"))
         try writeSparse(web.appending(path: "node_modules/dep"), bytes: 30_000_000)
-        try writeSparse(web.appending(path: ".next/cache/data"), bytes: 5_000_000)
+        try writeSparse(web.appending(path: ".next/cache/data"), bytes: 6_000_000)
         try writeSparse(web.appending(path: ".turbo/data"), bytes: 1_000_000)
         try writeSparse(package.appending(path: "node_modules/dep"), bytes: 2_000_000)
         try Data("code".utf8).write(to: web.appending(path: "src/index.ts"))
@@ -33,14 +33,13 @@ struct ToolPagesTests {
 
         let policy = SafetyPolicy(home: home)
         let result = try DevScanner(policy: policy).scan(root)
-        // The monorepo is one project; the tiny one is under the 20 MB bar.
+        // The monorepo is one project; the tiny one is under the 5 MB bar.
         #expect(result.projects.map(\.name) == ["web"])
         let project = try #require(result.projects.first)
         let names = Set(project.artifacts.map { String($0.url.path.dropFirst(CanonicalPath.url(web).path.count + 1)) })
-        #expect(names == ["node_modules", ".next/cache", ".turbo", "packages/ui/node_modules"])
-        #expect(!project.artifacts.contains { $0.url.path.contains("/src") })
-        let node = try #require(project.artifacts.first { $0.url.path.hasSuffix("web/node_modules") })
-        #expect(node.kind == .review && policy.decisionNote(for: node) != nil)
+        // Only regenerable build output; dependencies are never listed for people who can't reinstall them.
+        #expect(names == [".next/cache", ".turbo"])
+        #expect(project.artifacts.allSatisfy { $0.canTrash })
         let turbo = try #require(project.artifacts.first { $0.name == ".turbo" })
         #expect(turbo.kind == .cache && turbo.canTrash && turbo.risk == .a)
         #expect(project.modified != nil)

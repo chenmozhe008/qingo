@@ -230,7 +230,7 @@ struct AboutView: View {
                 advantage("懂 AI Coding", nil, "chevron.left.forwardslash.chevron.right", Theme.blue,
                           "认得 Cursor、Claude Code、Codex、WorkBuddy、CodeBuddy、Trae、Qoder 等主流 AI Coding 和智能体工具，也认得 Ollama、LM Studio 等本地模型。",
                           clean: "运行时、下载包、界面缓存，删了会自动重新生成",
-                          keep: "对话记录、工作区和扩展只统计、不删除；下载的模型由你挑着删")
+                          keep: "对话记录、工作区、扩展和模型，一个不碰")
                 advantage("也懂影视创作", nil, "film.stack.fill", Theme.pink,
                           "认得剪映、达芬奇、After Effects、Premiere、Final Cut、Blender 等主流剪辑和设计软件。",
                           clean: "剪映缓存、AE 磁盘缓存、Adobe 媒体缓存可以直接清；达芬奇、Final Cut 的渲染缓存，告诉你在软件里怎么清",

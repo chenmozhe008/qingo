@@ -12,30 +12,9 @@ final class ScanStore: ObservableObject {
             var buckets: [ItemFilter: [ScanItem]] = [:]
             for category in ItemFilter.allCases { buckets[category] = result?.items.filter { category.contains($0) } ?? [] }
             itemsByCategory = buckets
-            breakdowns = [:]
         }
     }
     private var itemsByCategory: [ItemFilter: [ScanItem]] = [:]
-    /// What is inside a read-only data row, measured when the user opens it ("里面有什么").
-    @Published var breakdowns: [URL: [DataPart]] = [:]
-
-    func breakdownKey(_ item: ScanItem) -> String { "data:" + item.url.path }
-
-    func toggleBreakdown(_ item: ScanItem) {
-        let key = breakdownKey(item)
-        if expandedGroups.contains(key) {
-            expandedGroups.remove(key)
-            return
-        }
-        expandedGroups.insert(key)
-        guard breakdowns[item.id] == nil else { return }
-        let listed = result?.items.filter { $0.url.path.hasPrefix(item.url.path + "/") } ?? []
-        let app = CreativeApp.of(item)
-        Task.detached(priority: .userInitiated) { [weak self] in
-            let parts = DataBreakdown.parts(of: item.url, app: app, excluding: listed)
-            await MainActor.run { self?.breakdowns[item.id] = parts }
-        }
-    }
     /// Items the user may delete after confirming, with what deleting costs (see `SafetyPolicy.decisionNote`).
     @Published private(set) var decisionNotes: [URL: String] = [:]
     /// Why an item could not be moved in the last cleanup; shown on its row until the next scan.
@@ -132,11 +111,6 @@ final class ScanStore: ObservableObject {
         if arguments.contains("--scan") { scan() }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
         creativeScrollTarget = arguments.first { $0.hasPrefix("--creative-app=") }.map { String($0.dropFirst("--creative-app=".count)) }
-        // `--expand-data`: with --creative-app, also open that tool's "里面有什么".
-        if arguments.contains("--expand-data"), let target = creativeScrollTarget,
-           let data = result?.items.first(where: { CreativeApp.of($0)?.id == target && !$0.canTrash && !isDecidable($0) }) {
-            toggleBreakdown(data)
-        }
         // `--tool=uninstall` / `--tool=dev` (add `--dev-scan` to rescan the dev folder).
         if let page = arguments.first(where: { $0.hasPrefix("--tool=") }) {
             uninstaller.pendingSelection = arguments.first { $0.hasPrefix("--select-app=") }.map { String($0.dropFirst("--select-app=".count)) }
@@ -202,29 +176,32 @@ final class ScanStore: ObservableObject {
 
     private static func decisionNotes(for result: ScanResult?, policy: SafetyPolicy) -> [URL: String] {
         var notes: [URL: String] = [:]
-        for item in result?.items ?? [] {
+        // Only large files and installers are left to the user (大文件与工程). Everything else is either
+        // safe to clean or not shown at all.
+        for item in result?.items ?? [] where item.kind == .largeFile {
             if let note = policy.decisionNote(for: item) { notes[item.id] = note }
         }
         return notes
     }
 
+    /// Everything safe is picked from the start: one button cleans it ("哗一下就删了").
+    private func pickAllSafe() {
+        selectedCleanupIDs = Set(eligibleItems.map(\.id))
+    }
+
     var selectedCleanupBytes: Int64 { Self.sum(selectedCleanupItems) }
 
     /// Apps to quit before cleaning the current selection.
-    var appsToQuit: [String] {
+    /// Apps running now whose caches are in the selection; their items are skipped, not a reason to stop.
+    /// Measured when the confirmation opens (checking every item on every redraw would be slow).
+    @Published private(set) var runningOwners: [String] = []
+
+    private func measureRunningOwners() {
         var names: [String] = []
         for item in selectedCleanupItems {
-            let name: String?
-            if let app = CreativeApp.of(item) {
-                name = app.title
-            } else if item.risk == .b {
-                name = ItemPresentation.info(for: item).title
-            } else {
-                name = nil
-            }
-            if let name, !names.contains(name) { names.append(name) }
+            if let name = ItemPresentation.runningOwner(of: item), !names.contains(name) { names.append(name) }
         }
-        return names
+        runningOwners = names
     }
 
     /// Fraction of the last scan of the same scope, when one is known.
@@ -251,15 +228,15 @@ final class ScanStore: ObservableObject {
         }
     }
 
+    /// "全选" covers every safe item, in every category; large files stay the user's call.
     func selectAllEligible() {
         guard !isCleaning else { return }
-        selectedCleanupIDs.formUnion(eligibleInFilter.map(\.id))
+        selectedCleanupIDs.formUnion(eligibleItems.map(\.id))
     }
 
-    /// Regenerable caches (risk A, outside creative apps) need no app to be quit: the safe one-click pick.
-    func selectReusable() {
+    func clearAllSafe() {
         guard !isCleaning else { return }
-        selectedCleanupIDs = Set(eligibleItems.filter { $0.risk == .a && CreativeApp.of($0) == nil }.map(\.id))
+        selectedCleanupIDs.subtract(eligibleItems.map(\.id))
     }
 
     func setGroupSelected(_ items: [ScanItem], selected: Bool) {
@@ -277,6 +254,7 @@ final class ScanStore: ObservableObject {
         guard !selectedCleanupItems.isEmpty, !isCleaning else { return }
         hoveredID = nil
         confirmDecided = false
+        measureRunningOwners()
         showTrashConfirmation = true
     }
 
@@ -467,7 +445,7 @@ final class ScanStore: ObservableObject {
                 switch output {
                 case .success(let value):
                     self.result = value
-                    self.selectedCleanupIDs.removeAll()
+                    self.pickAllSafe()
                     // Stay on the category being viewed; a rescan should not move the user elsewhere.
                     self.selectedID = nil
                     self.scanSizes[self.scopeKey] = value.scannedCount
@@ -528,11 +506,12 @@ final class ScanStore: ObservableObject {
                             totalBytes: value.totalBytes, volumeTotalBytes: value.volumeTotalBytes,
                             volumeFreeBytes: value.volumeFreeBytes, skippedCount: value.skippedCount,
                             scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps)
-        // Reopen on the category last viewed.
-        if let saved = UserDefaults.standard.string(forKey: Keys.lastFilter).flatMap(ItemFilter.init(rawValue:)) {
+        pickAllSafe()
+        // Reopen on the category last viewed, if it is still shown.
+        if let saved = UserDefaults.standard.string(forKey: Keys.lastFilter).flatMap(ItemFilter.init(rawValue:)), ItemFilter.visible.contains(saved) {
             filter = saved
         } else {
-            filter = ItemFilter.allCases.first { category in value.items.contains { category.contains($0) } } ?? .caches
+            filter = .caches
         }
     }
 
@@ -629,6 +608,9 @@ struct TrashedItem: Sendable {
 }
 
 enum ItemFilter: String, CaseIterable, Identifiable {
+    /// Categories shown in the sidebar and cards. "需要判断" is no longer shown: its items asked the user to judge.
+    static let visible: [ItemFilter] = [.caches, .creative, .chat, .large]
+
     case caches = "可清理缓存"
     case creative = "剪辑与设计软件"
     case chat = "微信与企业微信"

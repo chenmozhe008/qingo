@@ -56,7 +56,7 @@ enum DataBreakdown {
     static func describe(_ name: String, app: CreativeApp?) -> (String, String) {
         let key = name.lowercased()
         let creative = app.map { [.video, .design, .aiCreate].contains($0.group) } ?? false
-        let history = SafetyPolicy.oldHistoryDays
+        let history = 30
         switch key {
         case "projects" where creative, "drafts", "draft", "project", "user data":
             return ("工程和草稿", "你的作品，要删请在软件里删除对应的工程")
