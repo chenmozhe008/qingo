@@ -89,9 +89,18 @@ struct AppUninstaller: Sendable {
     }
 
     private func single(_ url: URL) -> InstalledApp? {
-        guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple."), id != Bundle.main.bundleIdentifier else { return nil }
+        guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple."), id != Bundle.main.bundleIdentifier,
+              !Self.isBackgroundOnly(bundle) else { return nil }
         let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
         return InstalledApp(id: url, name: name, bundleID: id, version: bundle.infoDictionary?["CFBundleShortVersionString"] as? String)
+    }
+
+    /// A helper with no interface at all (LSBackgroundOnly), started by something else: not an app anyone
+    /// opens or would think to uninstall, and removing it breaks whatever relies on it (e.g. a helper that
+    /// holds a permission for an automation). Menu-bar apps (LSUIElement) have an interface and stay listed.
+    static func isBackgroundOnly(_ bundle: Bundle) -> Bool {
+        let value = bundle.infoDictionary?["LSBackgroundOnly"]
+        return (value as? Bool) == true || (value as? String) == "1" || (value as? String)?.uppercased() == "YES"
     }
 
     private func suite(_ folder: URL, bundles: [URL]) -> InstalledApp? {

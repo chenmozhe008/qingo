@@ -137,4 +137,21 @@ struct ToolPagesTests {
         #expect(traces.first { $0.kind == .app }?.url.lastPathComponent == "Studio Suite")
         #expect(traces.filter { $0.kind == .preferences }.count == 2)
     }
+
+    @Test func backgroundOnlyHelpersAreNotListed() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        func makeApp(_ name: String, id: String, extra: [String: Any] = [:]) throws {
+            let contents = home.appending(path: "Applications/\(name).app/Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            var plist: [String: Any] = ["CFBundleIdentifier": id, "CFBundleName": name, "CFBundlePackageType": "APPL"]
+            plist.merge(extra) { _, new in new }
+            (plist as NSDictionary).write(to: contents.appending(path: "Info.plist"), atomically: true)
+        }
+        try makeApp("Helper", id: "com.example.helper", extra: ["LSBackgroundOnly": true])
+        try makeApp("MenuBar", id: "com.example.menubar", extra: ["LSUIElement": true])
+        let ids = AppUninstaller(policy: SafetyPolicy(home: home)).installedApps().map(\.bundleID)
+        #expect(!ids.contains("com.example.helper"))
+        #expect(ids.contains("com.example.menubar"))
+    }
 }
