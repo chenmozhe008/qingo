@@ -32,6 +32,8 @@ enum Theme {
     static let track = Color.adaptive(light: rgb(0.80, 0.81, 0.80), dark: rgb(0.30, 0.34, 0.34))
     /// Brand colour, 天青.
     static let blue = Color.adaptive(light: rgb(0.09, 0.53, 0.51), dark: rgb(0.38, 0.80, 0.75))
+    /// Selected sidebar row: brand-tinted, clearly stronger than hover or the grey fills around it.
+    static let selection = Color.adaptive(light: rgb(0.09, 0.53, 0.51).withAlphaComponent(0.16), dark: rgb(0.38, 0.80, 0.75).withAlphaComponent(0.22))
     /// Fill behind white button text: the brand colour, deeper in dark mode so the label stays readable.
     static let blueFill = Color.adaptive(light: rgb(0.09, 0.53, 0.51), dark: rgb(0.12, 0.50, 0.47))
     /// The lighter end of the brand colour; also the "cleanable cache" category.
@@ -253,8 +255,8 @@ struct ToolbarButtonStyle: ButtonStyle {
             .padding(.horizontal, large ? 18 : 12)
             .padding(.vertical, large ? 10 : 7)
             .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(prominent ? Theme.blue : (tinted ? Theme.blue.opacity(configuration.isPressed ? 0.2 : 0.12) : Theme.fill(configuration.isPressed ? 0.12 : 0.05))))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(prominent ? .clear : (tinted ? Theme.blue.opacity(0.28) : Theme.line)))
+                .fill(prominent ? Theme.blue : (tinted ? Theme.blue.opacity(configuration.isPressed ? 0.28 : 0.18) : Theme.fill(configuration.isPressed ? 0.12 : 0.05))))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(prominent ? .clear : (tinted ? Theme.blue.opacity(0.45) : Theme.line)))
             .opacity(configuration.isPressed ? 0.8 : 1)
             .contentShape(Rectangle())
     }

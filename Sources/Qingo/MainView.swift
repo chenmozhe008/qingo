@@ -462,14 +462,14 @@ struct MainView: View {
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.openTool(page) } } label: {
             HStack(spacing: 10) {
                 IconTile(symbol: icon, tint: tint, size: 24)
-                Text(title)
+                Text(title).fontWeight(active ? .semibold : .regular)
                 Spacer(minLength: 4)
             }
             .font(.system(size: 14))
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.13) : .clear))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -487,7 +487,7 @@ struct MainView: View {
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.13) : .clear))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -508,8 +508,8 @@ struct MainView: View {
         let hovered = removable && store.hoveredID == url
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectLocation(url, quick: quick) } } label: {
             HStack(spacing: 10) {
-                // The location being shown keeps its colour; the others are grey. The row background is kept for
-                // the page (总览, a category, a tool), so two rows never look selected at once.
+                // The location being shown keeps its colour and a brand outline; the others are grey. The filled
+                // background is kept for the page (总览, a category, a tool), so the two never look alike.
                 IconTile(symbol: icon, tint: active ? Theme.blue : Theme.slate.opacity(0.7), size: 24)
                 Text(title).lineLimit(1).truncationMode(.middle).fontWeight(active ? .semibold : .regular)
                 Spacer(minLength: 4)
@@ -531,6 +531,8 @@ struct MainView: View {
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(active ? Theme.blue.opacity(0.55) : .clear, lineWidth: 1.2))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -577,7 +579,7 @@ struct MainView: View {
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
             HStack(spacing: 10) {
                 IconTile(symbol: Theme.symbol(category), tint: tint, size: 24)
-                Text(category.title).lineLimit(1)
+                Text(category.title).lineLimit(1).fontWeight(selected ? .semibold : .regular)
                 Spacer(minLength: 4)
                 if bytes > 0 {
                     Text(ByteFormat.string(bytes))
@@ -591,7 +593,7 @@ struct MainView: View {
             .foregroundStyle(selected ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? Theme.fill(0.13) : .clear))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -710,14 +712,19 @@ struct MainView: View {
                 .keyboardShortcut("[", modifiers: .command)
                 .help("回到总览（⌘[）")
             }
+            // Rescan sits beside the time it refreshes, as a quiet link: it is not the page's main action.
             Text(store.showingOverview ? "\(volumeName(result.root))，\(store.scopeTitle)于\(Self.ago(result.scannedAt))" : "\(Self.ago(result.scannedAt))扫描")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
-            Spacer()
-            Button { store.scan() } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
-                .buttonStyle(ToolbarButtonStyle(large: true))
+            Button { store.scan() } label: {
+                Label("重新扫描", systemImage: "arrow.clockwise")
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(Theme.blue)
+            }
+                .buttonStyle(.plain)
                 .help("重新扫描「\(store.scopeTitle)」（⌘R）")
+            Spacer()
         }
         .disabled(store.isCleaning)
         .padding(.leading, showSidebar ? 22 : 22)
@@ -1515,7 +1522,9 @@ struct MainView: View {
             let kind = ItemPresentation.partTitle(for: item).components(separatedBy: " · ").first ?? ""
             if !names.contains(kind) { names.append(kind) }
         }
-        let failed = items.contains { store.failureReasons[$0.id] != nil }
+        let reasons = items.compactMap { store.failureReasons[$0.id] }
+        let failure = reasons.first.map { (count: reasons.count, reason: $0) }
+        let failed = failure != nil
         let toggleExpanded = {
             withAnimation(.easeOut(duration: 0.18)) {
                 if expanded { store.expandedGroups.remove(key) } else { store.expandedGroups.insert(key) }
@@ -1525,7 +1534,7 @@ struct MainView: View {
             ToolCheckbox(on: picked > 0, partial: picked > 0 && picked < items.count)
             VStack(alignment: .leading, spacing: 3) {
                 Text(kinds.joined(separator: "、")).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.tail)
-                Text(failed ? "部分未清理，展开查看原因" : "共 \(items.count) 处，可自动重建")
+                Text(failure.map { "\($0.count) 处未清理：\($0.reason)" } ?? "共 \(items.count) 处，可自动重建")
                     .font(.system(size: 12)).foregroundStyle(failed ? Theme.amber : Theme.ink3).lineLimit(1)
             }
             Spacer(minLength: 10)
@@ -1649,22 +1658,21 @@ struct MainView: View {
                     .help("关闭")
             }
             if !report.failures.isEmpty {
-                DisclosureGroup {
-                    VStack(alignment: .leading, spacing: 4) {
-                        ForEach(report.failures) { failure in
-                            HStack(spacing: 8) {
-                                Text(store.result?.items.first { $0.id == failure.id }.map { ItemPresentation.info(for: $0).title } ?? failure.name)
-                                    .font(.system(size: 12.5)).lineLimit(1).truncationMode(.middle)
-                                Spacer(minLength: 8)
-                                Text(failure.reason).font(.system(size: 12)).foregroundStyle(Theme.ink3)
-                            }
+                // Shown directly, one line per reason: a collapsed "查看原因" was easy to miss.
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(failureGroups(report), id: \.reason) { group in
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text("\(group.names.count) 处未清理：\(group.reason)")
+                                .font(.system(size: 12.5, weight: .medium))
+                                .foregroundStyle(Theme.amber)
+                                .fixedSize()
+                            Text(group.names.prefix(3).joined(separator: "、") + (group.names.count > 3 ? " 等" : ""))
+                                .font(.system(size: 12.5))
+                                .foregroundStyle(Theme.ink2)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
                         }
                     }
-                    .padding(.top, 6)
-                } label: {
-                    Text("\(report.failures.count) 处未清理，展开查看原因")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Theme.ink2)
                 }
                 .padding(.leading, 24)
             }
@@ -1674,6 +1682,17 @@ struct MainView: View {
     }
 
     // MARK: Helpers
+
+    private func failureGroups(_ report: CleanupReport) -> [(reason: String, names: [String])] {
+        var order: [String] = []
+        var names: [String: [String]] = [:]
+        for failure in report.failures {
+            let name = store.result?.items.first { $0.id == failure.id }.map { ItemPresentation.info(for: $0).title } ?? failure.name
+            if names[failure.reason] == nil { order.append(failure.reason) }
+            if names[failure.reason]?.contains(name) != true { names[failure.reason, default: []].append(name) }
+        }
+        return order.map { ($0, names[$0]!) }
+    }
 
     private func tagText(_ item: ScanItem) -> String {
         if let reason = store.failureReasons[item.id] { return "未清理：\(reason)" }

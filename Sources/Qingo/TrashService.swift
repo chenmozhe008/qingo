@@ -18,16 +18,18 @@ struct TrashService {
         let isDirectory = item.kind != .largeFile
         let expectedType = isDirectory ? mode_t(S_IFDIR) : mode_t(S_IFREG)
         var info = stat()
-        guard lstat(url.path, &info) == 0 else { throw TrashError.changed }
+        guard lstat(url.path, &info) == 0 else { throw errno == ENOENT ? TrashError.gone : TrashError.changed }
         let current = FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
-        guard current == item.identity, (info.st_mode & mode_t(S_IFMT)) == expectedType else { throw TrashError.changed }
+        // A cache the app rebuilt since the scan is a new folder at the same cache path: the policy above
+        // re-approved the path, so it goes too. What the user decided about must be the very file they saw.
+        guard current == item.identity || !decided, (info.st_mode & mode_t(S_IFMT)) == expectedType else { throw TrashError.changed }
         // A regenerable cache may go while its app is open: the app just builds a new one, nothing is lost
         // (the user cleans in one click; asking them to quit apps first was the wrong trade-off).
         // Anything the user decides about (a large file) must not be in use.
         if decided { try Self.ensureUnused(url, isDirectory: isDirectory) }
         // The usage check can take time; revalidate identity immediately before moving.
         guard lstat(url.path, &info) == 0,
-              FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)) == item.identity,
+              FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)) == current,
               (info.st_mode & mode_t(S_IFMT)) == expectedType else { throw TrashError.changed }
         var resultingURL: NSURL?
         try FileManager.default.trashItem(at: url, resultingItemURL: &resultingURL)
@@ -35,6 +37,7 @@ struct TrashService {
     }
 
     /// Moves items one at a time; anything changed, protected or (for large files) in use is reported, not moved.
+    /// Items already gone (cleaned elsewhere since the scan) are neither: they are only dropped from the list.
     /// Call off the main actor.
     static func moveAll(_ items: [ScanItem], policy: SafetyPolicy, progress: @Sendable (Int) async -> Void = { _ in }) async -> CleanupOutcome {
         var outcome = CleanupOutcome()
@@ -42,17 +45,30 @@ struct TrashService {
         for item in items {
             do {
                 let owner = await MainActor.run { ItemPresentation.runningOwner(of: item) }
+                // A rebuilt cache is a different size than the scan saw: report what actually moves.
+                let current = currentIdentity(item.url)
+                let moving = current == nil || current == item.identity ? item
+                    : ScanItem(id: item.id, url: item.url, kind: item.kind, risk: item.risk, bytes: AppUninstaller.size(of: item.url),
+                               note: item.note, canTrash: item.canTrash, identity: current!, modified: item.modified)
                 let trashed = try service.moveToTrash(item)
                 if let owner, !outcome.openApps.contains(owner) { outcome.openApps.append(owner) }
-                outcome.moved.append(TrashedItem(item: item, trashed: trashed))
-                let addition = outcome.bytes.addingReportingOverflow(item.bytes)
+                outcome.moved.append(TrashedItem(item: moving, trashed: trashed))
+                let addition = outcome.bytes.addingReportingOverflow(moving.bytes)
                 outcome.bytes = addition.overflow ? Int64.max : addition.partialValue
+            } catch TrashError.gone {
+                outcome.gone.append(item.id)
             } catch {
                 outcome.failures.append(CleanupReport.Failure(id: item.id, name: item.name, reason: reason(for: error)))
             }
             await progress(outcome.moved.count + outcome.failures.count)
         }
         return outcome
+    }
+
+    static func currentIdentity(_ url: URL) -> FileIdentity? {
+        var info = stat()
+        guard lstat(url.path, &info) == 0 else { return nil }
+        return FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
     }
 
     /// Moves trashed items back. Skips any whose original place is taken again or that left the Trash.
@@ -109,6 +125,8 @@ struct TrashService {
 struct CleanupOutcome: Sendable {
     var moved: [TrashedItem] = []
     var failures: [CleanupReport.Failure] = []
+    /// Selected items that no longer exist; not a failure.
+    var gone: [URL] = []
     var bytes: Int64 = 0
     var openApps: [String] = []
 
@@ -120,6 +138,7 @@ enum TrashError: LocalizedError {
     case changed
     case inUse
     case usageUnknown
+    case gone
 
     var errorDescription: String? {
         switch self {
@@ -127,6 +146,7 @@ enum TrashError: LocalizedError {
         case .changed: "扫描后已发生变化，请重新扫描"
         case .inUse: "正在被其他程序使用"
         case .usageUnknown: "无法确认是否在使用，已跳过"
+        case .gone: "文件已不存在"
         }
     }
 }

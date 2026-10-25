@@ -542,14 +542,17 @@ final class ScanStore: ObservableObject {
             result = nil
             return
         }
-        let checkedItems = value.items.map { item in
+        // A saved result can be days old: whatever was deleted since (by a quick scan, the app itself or the user)
+        // is dropped here, so the totals shown are what is still on disk.
+        let present = value.items.filter { TrashService.currentIdentity($0.url) != nil }
+        let checkedItems = present.map { item in
             guard item.canTrash, policy.cacheDescription(for: item.url, isDirectory: true) == nil else { return item }
             return ScanItem(id: item.id, url: item.url, kind: .review, risk: .c, bytes: item.bytes,
                             note: "清理规则已更新，此位置仅显示占用。重新扫描可更新结果。", canTrash: false, identity: item.identity,
                             modified: item.modified)
         }
         result = ScanResult(root: value.root, isQuickScan: value.isQuickScan, items: checkedItems,
-                            totalBytes: value.totalBytes, volumeTotalBytes: value.volumeTotalBytes,
+                            totalBytes: max(value.totalBytes - (Self.sum(value.items) - Self.sum(present)), 0), volumeTotalBytes: value.volumeTotalBytes,
                             volumeFreeBytes: value.volumeFreeBytes, skippedCount: value.skippedCount,
                             scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps)
         pickAllSafe()
@@ -596,13 +599,18 @@ final class ScanStore: ObservableObject {
             await MainActor.run {
                 guard let self else { return }
                 self.isCleaning = false
-                let movedIDs = Set(outcome.moved.map(\.item.id))
-                self.selectedCleanupIDs.subtract(movedIDs)
-                // No rescan: drop what moved and keep the user where they were. Failed items stay, with the reason.
-                self.updateResult(removing: movedIDs, adding: [])
+                let removedIDs = Set(outcome.moved.map(\.item.id) + outcome.gone)
+                self.selectedCleanupIDs.subtract(removedIDs)
+                // No rescan: drop what moved (or was already gone) and keep the user where they were.
+                // Failed items stay, with the reason.
+                self.updateResult(removing: removedIDs, adding: [])
                 self.failureReasons = Dictionary(outcome.failures.map { ($0.id, $0.reason) }, uniquingKeysWith: { first, _ in first })
                 self.undoable = outcome.moved
-                self.cleanupReport = outcome.report
+                if outcome.moved.isEmpty && outcome.failures.isEmpty {
+                    self.message = "所选项目已不存在，已从列表中移除"
+                } else {
+                    self.cleanupReport = outcome.report
+                }
             }
         }
     }

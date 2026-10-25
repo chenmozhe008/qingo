@@ -195,4 +195,32 @@ struct DecisionTierTests {
         store.undoLastCleanup()
         while store.isRestoring { try await Task.sleep(for: .milliseconds(20)) }
     }
+
+    /// An old saved result: one cache was rebuilt since (new folder, same path), one is already gone.
+    /// The rebuilt one is cleaned at its real size; the gone one is dropped, not reported as a failure.
+    @Test func staleResultCleansRebuiltCacheAndDropsGoneOne() async throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let rebuilt = home.appending(path: "A/.build")
+        let gone = home.appending(path: "B/.build")
+        for folder in [rebuilt, gone] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try Data("// fixture".utf8).write(to: folder.deletingLastPathComponent().appending(path: "Package.swift"))
+            try Data(repeating: 1, count: 64).write(to: folder.appending(path: "object.o"))
+        }
+        let policy = SafetyPolicy(home: home)
+        let items = try DiskScanner(policy: policy).scan(home).items.filter { $0.kind == .cache && $0.canTrash }
+        #expect(items.count == 2)
+        try FileManager.default.removeItem(at: rebuilt)
+        try FileManager.default.createDirectory(at: rebuilt, withIntermediateDirectories: true)
+        try Data(repeating: 2, count: 5_000).write(to: rebuilt.appending(path: "new.o"))
+        try FileManager.default.removeItem(at: gone)
+
+        let outcome = await TrashService.moveAll(items, policy: policy)
+        #expect(outcome.failures.isEmpty)
+        #expect(outcome.moved.count == 1 && outcome.moved.first?.item.bytes == 5_000)
+        #expect(outcome.gone.map(\.path) == items.filter { $0.url.path.contains("/B/") }.map(\.id.path))
+        #expect(!FileManager.default.fileExists(atPath: rebuilt.path))
+        _ = TrashService.putBack(outcome.moved.map { ($0.item.url, $0.trashed) })
+    }
 }
