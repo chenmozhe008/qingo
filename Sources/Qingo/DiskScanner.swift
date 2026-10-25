@@ -75,11 +75,11 @@ struct DiskScanner: Sendable {
 
         if !metadata.isDirectory {
             if policy.isProject(url), !insideProject, url != root, metadata.size >= minProjectBytes {
-                emit(&items, item(url, kind: .project, bytes: metadata.size, note: "这是工程文件。这里只显示占用，不提供删除。", canTrash: false, identity: metadata.identity, modified: metadata.modified))
+                emit(&items, item(url, kind: .project, bytes: metadata.size, note: "工程文件，仅显示占用。", canTrash: false, identity: metadata.identity, modified: metadata.modified))
             } else if !insideProject, url != root,
                       metadata.size >= largeFileThreshold || (metadata.size >= 100_000_000 && ["dmg", "pkg"].contains(url.pathExtension.lowercased())) {
                 let installer = ["dmg", "pkg"].contains(url.pathExtension.lowercased())
-                let note = installer ? "安装包可能是旧版本，也可能是要留着的交付资料。要不要删由你决定。" : "这是一个大文件。要不要删由你决定，删之前请确认它不是还要用的素材或资料。"
+                let note = installer ? "安装包，删除前请确认不再需要。" : "大文件，删除前请确认不再需要。"
                 emit(&items, item(url, kind: .largeFile, bytes: metadata.size, note: note, canTrash: false, identity: metadata.identity, modified: metadata.modified))
             }
             return metadata.size
@@ -113,7 +113,7 @@ struct DiskScanner: Sendable {
             if project, sum < minProjectBytes {
                 // Too small to be worth listing; still counted in the parent total.
             } else if project {
-                let note = url.lastPathComponent == "Figma" ? "Figma 的本地数据，可能包含还没同步的离线改动。这里只显示占用，请在 Figma 里处理。" : "项目工程或应用数据。这里只显示占用，不提供删除。"
+                let note = url.lastPathComponent == "Figma" ? "Figma 的本地数据，可能包含未同步的离线改动。仅显示占用，请在 Figma 中处理。" : "工程或应用数据，仅显示占用。"
                 emit(&items, item(url, kind: .project, bytes: sum, note: note, canTrash: false, identity: metadata.identity, modified: metadata.modified))
             } else if let reviewNote {
                 if url.path == policy.home.appending(path: "Library/Application Support/Shandianshuo/recordings").path {

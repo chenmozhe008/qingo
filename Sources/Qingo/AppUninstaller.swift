@@ -532,7 +532,7 @@ final class UninstallStore: ObservableObject {
                 guard let self else { return }
                 guard error == nil, let trashedApp = moved[app.id] else {
                     self.isWorking = false
-                    self.message = "没能把 \(app.name) 移到废纸篓。可以在访达里把它拖进废纸篓（可能需要输入密码）"
+                    self.message = "无法将 \(app.name) 移到废纸篓，可在访达中手动移除（可能需要输入密码）"
                     return
                 }
                 Task.detached(priority: .userInitiated) { [weak self] in
@@ -605,7 +605,7 @@ final class UninstallStore: ObservableObject {
                 guard let self else { return }
                 self.isWorking = false
                 self.report = nil
-                self.message = restored == entries.count ? "已放回原处 \(restored) 项" : "已放回 \(restored) 项，\(entries.count - restored) 项没有放回"
+                self.message = restored == entries.count ? "已恢复 \(restored) 项" : "已恢复 \(restored) 项，\(entries.count - restored) 项未恢复"
                 self.reload()
             }
         }

@@ -218,7 +218,7 @@ final class DevStore: ObservableObject {
                     self.selectAll()
                     self.save()
                 case .failure(let error):
-                    self.message = error is CancellationError ? "扫描已取消。" : "没能读取这个文件夹，请换一个试试。"
+                    self.message = error is CancellationError ? "扫描已取消。" : "无法读取该文件夹，请选择其他文件夹。"
                 }
             }
         }
@@ -268,7 +268,7 @@ final class DevStore: ObservableObject {
                 self.report = nil
                 self.update(removing: [], adding: restored)
                 let skipped = entries.count - restored.count
-                self.message = skipped == 0 ? "已放回原处 \(restored.count) 项" : "已放回 \(restored.count) 项，\(skipped) 项原位置已有新文件或已不在废纸篓，没有放回"
+                self.message = skipped == 0 ? "已恢复 \(restored.count) 项" : "已恢复 \(restored.count) 项，\(skipped) 项因原位置已有文件或已不在废纸篓而未恢复"
             }
         }
     }

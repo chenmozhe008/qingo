@@ -107,6 +107,13 @@ final class ScanStore: ObservableObject {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         refreshFullDiskAccess()
         appearance.apply()
+        // 自动 follows the clock: re-check each minute (it only changes anything at 7:00 and 19:00).
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                guard let self, self.appearance == .system else { return }
+                self.appearance.apply()
+            }
+        }
         loadLastResult()
         // For screenshots without touching the mouse: `open -a … --args --show-about[=反馈]` / `--scan`.
         let arguments = ProcessInfo.processInfo.arguments
@@ -115,6 +122,11 @@ final class ScanStore: ObservableObject {
             aboutTab = AboutTab(rawValue: String(about.drop { $0 != "=" }.dropFirst())) ?? .intro
         }
         if arguments.contains("--scan") { scan() }
+        // `--switch-appearance=自动|浅色|深色`: switch 3 s after launch, as a click would (checks 深色 → 自动).
+        if let raw = arguments.first(where: { $0.hasPrefix("--switch-appearance=") })?.split(separator: "=").last,
+           let mode = AppearanceMode.allCases.first(where: { $0.title == raw }) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.appearance = mode }
+        }
         // `--category=大文件与工程` (an ItemFilter raw value): open that category instead of the overview.
         if let raw = arguments.first(where: { $0.hasPrefix("--category=") }).map({ String($0.dropFirst("--category=".count)) }),
            let category = ItemFilter(rawValue: raw) {
@@ -610,7 +622,7 @@ final class ScanStore: ObservableObject {
                 self.undoable = []
                 self.cleanupReport = nil
                 self.updateResult(removing: [], adding: restored)
-                self.message = skipped == 0 ? "已放回原处 \(restored.count) 项" : "已放回 \(restored.count) 项，\(skipped) 项原位置已有新文件或已不在废纸篓，没有放回"
+                self.message = skipped == 0 ? "已恢复 \(restored.count) 项" : "已恢复 \(restored.count) 项，\(skipped) 项因原位置已有文件或已不在废纸篓而未恢复"
             }
         }
     }
@@ -688,22 +700,30 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
         }
     }
 
-    var colorScheme: ColorScheme? {
-        switch self {
-        case .system: nil
-        case .light: .light
-        case .dark: .dark
-        }
-    }
 
-    /// AppKit views (window blur, dynamic NSColors) follow NSApp.appearance, not SwiftUI's scheme.
+    /// Sets the whole app's look through AppKit only. SwiftUI's preferredColorScheme is not used: once it has
+    /// forced dark, setting it back to nil does not let go, so 深色 → 自动 stayed dark (user report).
     @MainActor func apply() {
         guard let application = NSApp else { return }
+        let target: NSAppearance?
         switch self {
-        case .system: application.appearance = nil
-        case .light: application.appearance = NSAppearance(named: .aqua)
-        case .dark: application.appearance = NSAppearance(named: .darkAqua)
+        case .system: target = Self.systemSwitchesItself ? nil : NSAppearance(named: Self.isNight() ? .darkAqua : .aqua)
+        case .light: target = NSAppearance(named: .aqua)
+        case .dark: target = NSAppearance(named: .darkAqua)
         }
+        guard application.appearance?.name != target?.name || application.windows.contains(where: { $0.appearance != nil }) else { return }
+        application.appearance = target
+        // Windows inherit from the app; clear anything set on them directly.
+        for window in application.windows { window.appearance = nil }
+    }
+
+    /// 自动 means light by day, dark at night. When macOS itself is set to 自动 it already does that (by sunset),
+    /// so follow it; otherwise use a fixed day of 7:00–19:00.
+    static var systemSwitchesItself: Bool { UserDefaults.standard.bool(forKey: "AppleInterfaceStyleSwitchesAutomatically") }
+
+    static func isNight(_ date: Date = Date()) -> Bool {
+        let hour = Calendar.current.component(.hour, from: date)
+        return hour < 7 || hour >= 19
     }
 }
 

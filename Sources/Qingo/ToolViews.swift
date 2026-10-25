@@ -52,13 +52,13 @@ struct ToolResultBanner: View {
                 HStack(alignment: .firstTextBaseline, spacing: 10) {
                     Image(systemName: report.movedCount > 0 ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
                         .foregroundStyle(report.movedCount > 0 ? Theme.green : Theme.amber)
-                    Text(report.movedCount > 0 ? "清掉了 \(ByteFormat.string(report.movedBytes))，都在废纸篓里" : "这次没清掉")
+                    Text(report.movedCount > 0 ? "已清理 \(ByteFormat.string(report.movedBytes))，文件已移到废纸篓" : "未能清理")
                         .font(.system(size: 13.5, weight: .semibold))
                     if report.movedCount > 0 {
-                        Text("清空废纸篓后才真正腾出空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                        Text("清空废纸篓后释放空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
                     }
                     Spacer()
-                    if canUndo { Button("撤销", action: undo).buttonStyle(GhostButtonStyle()).help("把刚才移走的放回原处") }
+                    if canUndo { Button("撤销", action: undo).buttonStyle(GhostButtonStyle()).help("恢复刚才清理的项目") }
                     if report.movedCount > 0 {
                         Button("打开废纸篓") { NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: ".Trash")) }
                             .buttonStyle(GhostButtonStyle())
@@ -157,12 +157,12 @@ struct TrashConfirmSheet: View {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             if warned > 0 {
                 Toggle(isOn: $confirmed) {
-                    Text("我已确认标黄的 \(warned) 项可以删").font(.system(size: 13, weight: .medium))
+                    Text("我已确认可以删除标黄的 \(warned) 项").font(.system(size: 13, weight: .medium))
                 }
                 .toggleStyle(.checkbox)
             }
             HStack {
-                Text("本应用不会清空废纸篓，什么时候清空由你决定。").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                Text("小清不会自动清空废纸篓。").font(.system(size: 12)).foregroundStyle(Theme.ink3)
                 Spacer()
                 Button("返回", action: onCancel).buttonStyle(GhostButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(actionTitle, action: onConfirm)
@@ -176,7 +176,6 @@ struct TrashConfirmSheet: View {
         .fixedSize(horizontal: false, vertical: true)
         .foregroundStyle(Theme.ink)
         .background(Backdrop())
-        .preferredColorScheme(appearance.colorScheme)
     }
 }
 
@@ -185,15 +184,15 @@ enum ToolText {
         url.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
     }
 
-    /// "今天打开 / 昨天打开 / 3 天前打开 / 5 个月没打开 / 一年多没打开"
+    /// "今天打开 / 昨天打开 / 3 天前打开 / 5 个月未使用 / 超过 1 年未使用"
     static func lastUsed(_ date: Date?) -> String? {
         guard let date else { return nil }
         if Calendar.current.isDateInToday(date) { return "今天打开" }
         if Calendar.current.isDateInYesterday(date) { return "昨天打开" }
         let days = Int(Date().timeIntervalSince(date) / 86_400)
         if days < 30 { return "\(max(days, 2)) 天前打开" }
-        if days < 365 { return "\(days / 30) 个月没打开" }
-        return days < 730 ? "一年多没打开" : "\(days / 365) 年多没打开"
+        if days < 365 { return "\(days / 30) 个月未使用" }
+        return days < 730 ? "超过 1 年未使用" : "超过 \(days / 365) 年未使用"
     }
 
     /// Untouched for half a year or more: worth pointing out.
@@ -313,7 +312,7 @@ struct UninstallView: View {
                 IconTile(symbol: "trash.slash.fill", tint: Theme.amber, size: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("已删除应用的残留").font(.system(size: 14, weight: .semibold))
-                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "没有发现" : "\(groups.count) 项，没有对应的 App 了")
+                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项，没有对应的 App 了")
                         .font(.system(size: 12)).foregroundStyle(Theme.ink3)
                 }
                 Spacer(minLength: 8)
@@ -345,8 +344,8 @@ struct UninstallView: View {
                 } else {
                     VStack(spacing: 12) {
                         Image(systemName: "app.badge.checkmark").font(.system(size: 34)).foregroundStyle(Theme.ink3)
-                        Text("选一个应用，看看它在 Mac 上留了什么").font(.system(size: 14)).foregroundStyle(Theme.ink2)
-                        Text("卸载时连同它的缓存、设置和后台程序一起放进废纸篓。").font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
+                        Text("选择应用以查看其相关文件").font(.system(size: 14)).foregroundStyle(Theme.ink2)
+                        Text("卸载时，应用及其缓存、设置和后台程序将一并移到废纸篓。").font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -405,7 +404,7 @@ struct UninstallView: View {
                             .font(.system(size: 12.5)).foregroundStyle(Theme.amber)
                     }
                     if store.hasContainer(app) {
-                        Text("它还有沙盒数据在 ~/Library/Containers，系统不允许其他应用读取。要彻底删，请在访达里手动删除。")
+                        Text("该应用在 ~/Library/Containers 中还有沙盒数据，系统不允许其他应用读取。如需彻底删除，请在访达中手动处理。")
                             .font(.system(size: 12)).foregroundStyle(Theme.ink3)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -423,7 +422,7 @@ struct UninstallView: View {
         let kinds = traces.reduce(into: [String]()) { names, trace in
             if !names.contains(trace.kind.title) { names.append(trace.kind.title) }
         }
-        let detail = traces.contains { $0.kind == .toolData } ? "它的对话、模型和设置，一起删除，共 \(traces.count) 处"
+        let detail = traces.contains { $0.kind == .toolData } ? "对话、模型和设置，共 \(traces.count) 处"
             : kinds.joined(separator: "、") + "，共 \(traces.count) 处"
         return HStack(spacing: 12) {
             ToolCheckbox(on: picked > 0, amber: amber, partial: picked > 0 && picked < traces.count)
@@ -470,7 +469,7 @@ struct UninstallView: View {
         .contentShape(Rectangle())
         .onTapGesture { store.toggle(trace) }
         .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([trace.url]) } }
-        .help(trace.kind == .app ? "卸载就是把 App 本身放进废纸篓" : "")
+        .help(trace.kind == .app ? "卸载即将应用移到废纸篓" : "")
     }
 
     private var orphanDetail: some View {
@@ -480,7 +479,7 @@ struct UninstallView: View {
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 6) {
                         Text("已删除应用的残留").font(.system(size: 20, weight: .bold))
-                        Text("这些 App 已经删掉了，留下的设置和缓存没用了，可以放心清。")
+                        Text("这些应用已删除，残留的设置和缓存可以清理。")
                             .font(.system(size: 13)).foregroundStyle(Theme.ink2)
                             .fixedSize(horizontal: false, vertical: true)
                     }
@@ -497,7 +496,7 @@ struct UninstallView: View {
                 if store.orphans == nil {
                     ProgressView().frame(maxWidth: .infinity).padding(30)
                 } else if groups.isEmpty {
-                    Label("没有发现残留", systemImage: "checkmark.circle").font(.system(size: 14)).foregroundStyle(Theme.green).padding(18)
+                    Label("未发现残留", systemImage: "checkmark.circle").font(.system(size: 14)).foregroundStyle(Theme.green).padding(18)
                 }
                 ForEach(groups) { group in
                     HStack(spacing: 12) {
@@ -550,7 +549,7 @@ struct UninstallView: View {
                 .buttonStyle(HeroButtonStyle())
                 .disabled(store.isWorking || running || store.traces[app.id] == nil)
                 .opacity(running ? 0.55 : 1)
-            Text(running ? "请先退出 \(app.name)" : leftovers > 0 ? "其中残留文件 \(ByteFormat.string(leftovers))" : "放进废纸篓，随时可以拖回来")
+            Text(running ? "请先退出 \(app.name)" : leftovers > 0 ? "其中残留文件 \(ByteFormat.string(leftovers))" : "移到废纸篓，可随时恢复")
                 .font(.system(size: 12)).foregroundStyle(running ? Theme.amber : Theme.ink3)
         }
     }
@@ -559,17 +558,17 @@ struct UninstallView: View {
     private var confirmSheet: some View {
         if store.showOrphans {
             let groups = (store.orphans ?? []).filter { store.pickedOrphans.contains($0.id) }
-            TrashConfirmSheet(title: "删除残留", subtitle: "共 \(groups.count) 项，\(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes }))。放进废纸篓后随时可以恢复。",
+            TrashConfirmSheet(title: "删除残留", subtitle: "共 \(groups.count) 项，\(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes }))。移到废纸篓后可随时恢复。",
                               rows: groups.map { ConfirmRow(id: URL(fileURLWithPath: "/" + $0.id), title: $0.id,
                                                             detail: $0.traces.map { ToolText.short($0.url) }.joined(separator: "，"),
                                                             bytes: $0.bytes, warning: nil) },
-                              confirmed: $store.confirmDecided, actionTitle: "放进废纸篓", appearance: appearance,
+                              confirmed: $store.confirmDecided, actionTitle: "移到废纸篓", appearance: appearance,
                               onConfirm: store.removeOrphans, onCancel: { store.showConfirm = false })
         } else if let app = store.selectedApp {
             let traces = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }
             TrashConfirmSheet(title: "卸载 \(app.name)",
                               subtitle: "共 \(traces.count) 项，\(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes }))"
-                                + (traces.contains { $0.kind == .toolData } ? "，包括它的对话和设置" : "") + "。放进废纸篓后随时可以恢复。",
+                                + (traces.contains { $0.kind == .toolData } ? "，包括它的对话和设置" : "") + "。移到废纸篓后可随时恢复。",
                               rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
                                                             warning: nil) },
                               confirmed: $store.confirmDecided, actionTitle: "卸载", appearance: appearance,
@@ -607,8 +606,8 @@ struct DevProjectsView: View {
             } else {
                 VStack(spacing: 12) {
                     IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.blue, size: 56)
-                    Text("找出工程里能清的构建缓存").font(.system(size: 22, weight: .bold)).padding(.top, 8)
-                    Text("会在「\(ToolText.short(store.root))」里找。代码和依赖一个不碰，只找构建缓存。")
+                    Text("查找工程中可清理的构建缓存").font(.system(size: 22, weight: .bold)).padding(.top, 8)
+                    Text("将在「\(ToolText.short(store.root))」中查找构建缓存，不涉及代码和依赖。")
                         .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                     if let message = store.message { Text(message).font(.system(size: 12.5)).foregroundStyle(Theme.amber) }
                     Button { store.scan() } label: { Label("开始扫描", systemImage: "play.fill") }
@@ -631,8 +630,8 @@ struct DevProjectsView: View {
         return ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 12) {
-                PageHeader(symbol: "hammer.fill", tint: Theme.indigo, title: result.projects.isEmpty ? "没有需要清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存",
-                           subtitle: "工程编译、运行时自动生成的缓存，删了下次会重新生成。代码、依赖和设置一个不碰。") {
+                PageHeader(symbol: "hammer.fill", tint: Theme.indigo, title: result.projects.isEmpty ? "未发现可清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存",
+                           subtitle: "编译和运行时生成的缓存，清理后会自动重建。不涉及代码、依赖和设置。") {
                     devActions
                 }
                 .padding(.bottom, 4)
@@ -692,7 +691,7 @@ struct DevProjectsView: View {
             let parent = (relative(item) as NSString).deletingLastPathComponent
             return parent.isEmpty ? "工程根目录" : parent
         }
-        let detail = failure.map { "没清掉：\($0)" }
+        let detail = failure.map { "未清理：\($0)" }
             ?? (group.items.count == 1 ? relative(first) : "在 " + places.prefix(2).joined(separator: "、") + (places.count > 2 ? " 等处" : ""))
         return HStack(spacing: 12) {
             ToolCheckbox(on: pickedCount > 0, partial: pickedCount > 0 && pickedCount < group.items.count)
@@ -756,11 +755,11 @@ struct DevProjectsView: View {
 
     private var confirmSheet: some View {
         let items = store.selectedDecided + store.selectedItems.filter { !store.isDecidable($0) }
-        return TrashConfirmSheet(title: "放进废纸篓",
-                                 subtitle: "共 \(items.count) 项，\(ByteFormat.string(ScanStore.sum(items)))。放进废纸篓后随时可以恢复。",
+        return TrashConfirmSheet(title: "移到废纸篓",
+                                 subtitle: "共 \(items.count) 项，\(ByteFormat.string(ScanStore.sum(items)))。移到废纸篓后可随时恢复。",
                                  rows: items.map { ConfirmRow(id: $0.id, title: artifactTitle($0), detail: ToolText.short($0.url), bytes: $0.bytes,
                                                               warning: store.decisionNotes[$0.id]) },
-                                 confirmed: $store.confirmDecided, actionTitle: "放进废纸篓", appearance: appearance,
+                                 confirmed: $store.confirmDecided, actionTitle: "移到废纸篓", appearance: appearance,
                                  onConfirm: store.trashSelected, onCancel: { store.showConfirm = false })
     }
 }

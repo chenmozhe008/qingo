@@ -31,7 +31,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
             case .aiCreate: "模型、工作流和生成的作品"
             case .aiChat: "对话记录和登录状态"
             case .aiCode: "对话记录、扩展和工作区设置"
-            case .localModel: "下载的模型，删了要重新下载"
+            case .localModel: "下载的模型，删除后需重新下载"
             }
         }
     }
@@ -76,39 +76,39 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 
     var hint: String {
-        cleanHow ?? "缓存可以在这里清理；\(group.dataNote)只统计、不删除"
+        cleanHow ?? "缓存可在此清理；\(group.dataNote)仅统计，不删除"
     }
 
     var dataDescription: String {
-        "\(title) 的\(group.dataNote)。这里只统计占用，不提供删除。" + (cleanHow.map { "\($0)。" } ?? "")
+        "\(title) 的\(group.dataNote)。仅显示占用，不提供删除。" + (cleanHow.map { "\($0)。" } ?? "")
     }
 
     /// How to slim down a VS Code-style editor: extensions are the big part and are removed in the editor.
     static func editorHow(_ name: String) -> String {
-        "缓存可以在这里清理；不用的扩展在\(name)的「扩展」面板里卸载"
+        "缓存可在此清理；不需要的扩展请在\(name)的「扩展」面板中卸载"
     }
 
     // MARK: Catalog
 
     // 剪辑与调色
     static let afterEffects = CreativeApp("ae", "After Effects", .video, short: "AE", apps: ["com.adobe.AfterEffects", "Adobe After Effects"],
-                                          folders: ["After Effects", "Adobe After Effects"], cleanHow: "也可以在 AE 里选「编辑 → 清理 → 所有内存与磁盘缓存」")
+                                          folders: ["After Effects", "Adobe After Effects"], cleanHow: "也可在 AE 中选择「编辑 → 清理 → 所有内存与磁盘缓存」")
     static let premiere = CreativeApp("premiere", "Premiere Pro", .video, short: "Premiere", apps: ["Adobe Premiere Pro"],
-                                      folders: ["Premiere Pro", "Adobe Premiere Pro"], cleanHow: "媒体缓存也可以在 Premiere「设置 → 媒体缓存」里删除")
+                                      folders: ["Premiere Pro", "Adobe Premiere Pro"], cleanHow: "媒体缓存也可在 Premiere「设置 → 媒体缓存」中删除")
     static let mediaEncoder = CreativeApp("ame", "Media Encoder", .video, apps: ["Adobe Media Encoder"], folders: ["Media Encoder", "Adobe Media Encoder"])
     static let audition = CreativeApp("audition", "Audition", .video, apps: ["Adobe Audition"], folders: ["Audition", "Adobe Audition"])
     static let adobeMedia = CreativeApp("adobe-common", "Adobe 媒体缓存", .video, short: "Adobe 软件",
                                         caches: ["Library/Application Support/Adobe/Common/Media Cache Files",
                                                  "Library/Application Support/Adobe/Common/Media Cache",
                                                  "Library/Application Support/Adobe/Common/Peak Files"],
-                                        cleanHow: "AE、Premiere 共用的媒体缓存，清理前请先退出所有 Adobe 软件")
+                                        cleanHow: "AE、Premiere 共用的媒体缓存")
     static let finalCut = CreativeApp("fcp", "Final Cut Pro", .video, short: "Final Cut", apps: ["com.apple.FinalCut"],
-                                      cleanHow: "渲染文件请在 Final Cut 里选中资源库，「文件 → 删除已生成的资源库文件」")
+                                      cleanHow: "渲染文件请在 Final Cut 中选中资源库，选择「文件 → 删除已生成的资源库文件」")
     static let davinci = CreativeApp("resolve", "DaVinci Resolve", .video, short: "达芬奇", apps: ["com.blackmagic-design.DaVinciResolve", "DaVinci Resolve"],
-                                     folders: ["DaVinci Resolve"], cleanHow: "渲染缓存请在达芬奇里选「播放 → 删除渲染缓存」")
+                                     folders: ["DaVinci Resolve"], cleanHow: "渲染缓存请在达芬奇中选择「播放 → 删除渲染缓存」")
     static let jianying = CreativeApp("jianying", "剪映专业版", .video, short: "剪映", apps: ["com.lemon.lvpro", "剪映专业版", "VideoFusion-macOS"],
                                       roots: ["Movies/JianyingPro"], caches: ["Movies/JianyingPro/User Data/Cache"],
-                                      cleanHow: "缓存可以在这里清理，草稿不会被动到；也可以在剪映「全局设置 → 清理缓存」")
+                                      cleanHow: "缓存可在此清理，不影响草稿；也可在剪映「全局设置 → 清理缓存」中清理")
     static let capcut = CreativeApp("capcut", "CapCut", .video, apps: ["com.lemon.lvoverseas", "CapCut"],
                                     roots: ["Movies/CapCut"], caches: ["Movies/CapCut/User Data/Cache"])
     static let filmora = CreativeApp("filmora", "万兴喵影 Filmora", .video, short: "Filmora", apps: ["Wondershare Filmora", "万兴喵影"],
@@ -120,7 +120,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static let photoshop = CreativeApp("ps", "Photoshop", .design, apps: ["Adobe Photoshop"], folders: ["Photoshop", "Adobe Photoshop"])
     static let illustrator = CreativeApp("ai", "Illustrator", .design, apps: ["Adobe Illustrator"], folders: ["Illustrator", "Adobe Illustrator"])
     static let lightroom = CreativeApp("lr", "Lightroom", .design, apps: ["Adobe Lightroom"], folders: ["Lightroom", "Adobe Lightroom", "Adobe Lightroom Classic"],
-                                       roots: ["Pictures/Lightroom"], cleanHow: "预览文件请在 Lightroom「目录设置 → 文件处理」里调整")
+                                       roots: ["Pictures/Lightroom"], cleanHow: "预览文件请在 Lightroom「目录设置 → 文件处理」中调整")
     static let figma = CreativeApp("figma", "Figma", .design, apps: ["com.figma.Desktop"], folders: ["Figma", "com.figma.Desktop"])
     static let sketch = CreativeApp("sketch", "Sketch", .design, apps: ["com.bohemiancoding.sketch3"], folders: ["com.bohemiancoding.sketch3"])
     static let mastergo = CreativeApp("mastergo", "MasterGo", .design, apps: ["MasterGo"], folders: ["MasterGo"])
@@ -176,7 +176,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static let lingma = CreativeApp("lingma", "通义灵码", .aiCode, short: "灵码", roots: [".lingma"])
     static let comate = CreativeApp("comate", "文心快码", .aiCode, short: "Comate", roots: [".comate"])
     static let claudeCode = CreativeApp("claude-code", "Claude Code", .aiCode, folders: ["claude-cli-nodejs"], roots: [".claude"],
-                                         cleanHow: "对话记录在 ~/.claude/projects；把 ~/.claude/settings.json 里的 cleanupPeriodDays 调小，Claude Code 会自动删掉更早的对话",
+                                         cleanHow: "对话记录位于 ~/.claude/projects；调小 ~/.claude/settings.json 中的 cleanupPeriodDays，Claude Code 会自动删除更早的对话",
                                          iconApp: "com.anthropic.claudefordesktop")
     static let codex = CreativeApp("codex", "Codex", .aiCode, apps: ["com.openai.codex"], folders: ["Codex", "com.openai.codex"], caches: [".cache/codex-runtimes"])
     static let geminiCLI = CreativeApp("gemini-cli", "Gemini CLI", .aiCode, roots: [".gemini"])
@@ -185,7 +185,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
 
     // 本地模型
     static let ollama = CreativeApp("ollama", "Ollama", .localModel, apps: ["com.electron.ollama", "Ollama"], folders: ["Ollama"], roots: [".ollama"],
-                                    cleanHow: "Ollama 的模型文件互相共用，要在终端用 ollama rm 删除，这里只统计")
+                                    cleanHow: "Ollama 的模型文件相互共用，需在终端用 ollama rm 删除，此处仅统计")
     static let lmStudio = CreativeApp("lmstudio", "LM Studio", .localModel, apps: ["LM Studio"], folders: ["LM Studio"], roots: [".lmstudio", ".cache/lm-studio"])
     static let localModels = CreativeApp("huggingface", "Hugging Face 模型", .localModel, short: "Hugging Face", roots: [".cache/huggingface"])
     static let jan = CreativeApp("jan", "Jan", .localModel, apps: ["Jan"], folders: ["Jan"], roots: ["jan"])
@@ -288,12 +288,12 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static func cacheNote(_ url: URL, home: URL) -> String? {
         guard let relative = relative(url, home: home), let match = owner(relativePath: relative) else { return nil }
         let app = match.app
-        let quit = "清理前请先退出 \(app.shortName)。"
+        let quit = ""
         if app.caches.contains(relative) { return "\(app.title) 的缓存，下次使用时会重新生成。\(quit)" }
         let parts = relative.split(separator: "/").map(String.init)
         // ~/Library/Caches/<tool>, ~/Library/Logs/<tool> (or under Adobe / Blackmagic Design).
         if match.inCaches, parts.count >= 3, parts.count == (vendorFolders.contains(parts[2]) ? 4 : 3) {
-            if parts[1] == "Logs" { return "\(app.title) 的日志，删了不影响使用。" }
+            if parts[1] == "Logs" { return "\(app.title) 的日志，清理不影响使用。" }
             return "\(app.title) 的缓存，下次打开时会重新生成。\(quit)"
         }
         guard !match.inCaches, let name = parts.last else { return nil }
@@ -310,11 +310,11 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         }
         // Crash reports, anywhere in the tool's data.
         if ["Crashpad", "crashpad"].contains(name) {
-            return "\(app.title) 的崩溃报告，删了不影响使用。"
+            return "\(app.title) 的崩溃报告，清理不影响使用。"
         }
         // The tool's own log folder, directly in its top folder.
         if ["logs", "Logs", "log"].contains(name), isTopFolder(String(relative.dropLast(name.count + 1)), of: app) {
-            return "\(app.title) 的日志，删了不影响使用。\(quit)"
+            return "\(app.title) 的日志，清理不影响使用。\(quit)"
         }
         return nil
     }
@@ -418,10 +418,10 @@ enum ChatGuide {
     /// What to click on that page, in order, and which part of the data each step frees.
     static func steps(for bundleID: String) -> [(title: String, text: String, kinds: [ChatPart.Kind])] {
         if bundleID == "com.tencent.xinWeChat" {
-            return [("点「缓存」，清理", "都是临时文件，聊天记录不受影响。", [.cache]),
-                    ("点「聊天记录」", "按聊天从大到小排着。不需要的聊天选中删掉；删掉后这台电脑上就没有了，要留的图片和文件先另存。", [.media, .records])]
+            return [("清理「缓存」", "临时文件，不影响聊天记录。", [.cache]),
+                    ("管理「聊天记录」", "各聊天按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的图片和文件请先另存。", [.media, .records])]
         }
-        return [("点「缓存」，清理", "都是临时文件，聊天记录不受影响。", [.cache]),
-                ("点「聊天中的文件」", "按聊天从大到小排着。不需要的文件选中删掉；删掉后这台电脑上就没有了，要留的先另存。", [.media])]
+        return [("清理「缓存」", "临时文件，不影响聊天记录。", [.cache]),
+                ("管理「聊天中的文件」", "文件按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的请先另存。", [.media])]
     }
 }

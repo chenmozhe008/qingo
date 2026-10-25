@@ -71,10 +71,10 @@ struct SafetyPolicy: Sendable {
         let path = CanonicalPath.url(url).path
         // One downloaded model inside a model tool's folder: listed on its own so it can be picked.
         if let model = modelName(url) {
-            return "下载的模型 \(model)。删了以后，要用它得重新下载。"
+            return "下载的模型 \(model)，删除后需重新下载。"
         }
         if isVirtualEnvironment(url) {
-            return "Python 虚拟环境。删了以后，要重新创建并安装依赖，这个工程才能运行。"
+            return "Python 虚拟环境，删除后需重新创建并安装依赖。"
         }
         // Only the outermost folder of a recognized tool; its cleanable caches are listed separately.
         if let app = CreativeApp.dataOwner(url, home: home), CreativeApp.cacheNote(url, home: home) == nil,
@@ -84,19 +84,19 @@ struct SafetyPolicy: Sendable {
         // Only the outermost node_modules; nested ones are already counted inside it.
         if url.lastPathComponent == "node_modules", hasNodeManifest(near: url),
            !url.deletingLastPathComponent().path.contains("/node_modules") {
-            return "这是项目的依赖文件夹。删掉后要重新安装，可能影响正在做的工程。确认这个工程暂时不用了再删。"
+            return "项目依赖文件夹，删除后需重新安装。"
         }
         if path == home.appending(path: "Library/Application Support/Shandianshuo/recordings").path {
-            return "闪电说的录音。这里只统计超过 15 天的旧录音，删不删由你逐条决定。"
+            return "闪电说的录音，仅统计超过 15 天的旧录音，需逐条确认。"
         }
         if path == home.appending(path: "Library/Application Support/Notion/Partitions/notion/Service Worker").path {
-            return "Notion 的离线缓存可能包含还没同步的改动。这里只显示占用，请先在 Notion 里确认已经同步，再自行处理。"
+            return "Notion 的离线缓存可能包含未同步的改动，仅显示占用。"
         }
         if url.lastPathComponent == "Render Files", path.contains(".fcpbundle/") {
-            return "Final Cut 的渲染文件。请在 Final Cut 中选中资源库，选择「文件 → 删除已生成的资源库文件」，建议只删除未使用的渲染文件。这里不直接清理。"
+            return "Final Cut 的渲染文件。请在 Final Cut 中选中资源库，选择「文件 → 删除已生成的资源库文件」。此处不直接清理。"
         }
         if url.lastPathComponent == "CacheClip" {
-            return "达芬奇的渲染缓存。请先确认对应的工程和缓存位置，再在达芬奇里用「删除渲染缓存」清理。这里不直接清理。"
+            return "达芬奇的渲染缓存。请在达芬奇中使用「删除渲染缓存」清理，此处不直接清理。"
         }
         return nil
     }
@@ -121,9 +121,9 @@ struct SafetyPolicy: Sendable {
                 return "Blender 的应用缓存，不包含 .blend 工程和用户设置，下次打开时会重新生成。"
             }
             if name == "Homebrew" {
-                return "Homebrew 的下载缓存。如果要清理旧版本，请先在 Homebrew 里预览，本应用不会运行 brew cleanup。"
+                return "Homebrew 的下载缓存。清理旧版本请使用 brew cleanup，小清不会自动运行。"
             }
-            return "应用缓存，下次使用时会重新生成。清理前请先退出对应的应用。"
+            return "应用缓存，下次使用时自动重建。"
         }
         let appSupportCaches = home.appending(path: "Library/Application Support/Caches").path
         if CanonicalPath.url(url.deletingLastPathComponent()).path == appSupportCaches,
@@ -136,8 +136,8 @@ struct SafetyPolicy: Sendable {
             (".cache/uv", "uv 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".cache/pip", "pip 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".npm/_cacache", "npm 的包缓存，下次安装依赖时可能需要重新下载。"),
-            ("Library/Application Support/Notion/Partitions/notion/Cache", "Notion 的浏览器缓存。清理前请先退出 Notion。"),
-            ("Library/Application Support/Notion/Partitions/notion/Code Cache", "Notion 的代码缓存。清理前请先退出 Notion。")
+            ("Library/Application Support/Notion/Partitions/notion/Cache", "Notion 的浏览器缓存，下次打开时自动重建。"),
+            ("Library/Application Support/Notion/Partitions/notion/Code Cache", "Notion 的代码缓存，下次打开时自动重建。")
         ]
         if let match = directCaches.first(where: { path == home.appending(path: $0.0).path }) {
             return match.1
@@ -225,17 +225,17 @@ struct SafetyPolicy: Sendable {
         case .review:
             if url.lastPathComponent == "node_modules", hasNodeManifest(near: url),
                !url.deletingLastPathComponent().path.contains("/node_modules") {
-                return "删了以后，这个工程要重新安装依赖（npm install 等）才能运行；它要是在定时自动运行，会停下来。"
+                return "删除后需重新安装依赖（npm install 等），依赖它的定时任务会停止。"
             }
-            if isVirtualEnvironment(url) { return "删了以后，要重新创建虚拟环境并安装依赖；用它定时自动运行的脚本会停下来。" }
-            if modelName(url) != nil { return "删了以后，要用这个模型得重新下载。" }
+            if isVirtualEnvironment(url) { return "删除后需重新创建虚拟环境并安装依赖，依赖它的定时任务会停止。" }
+            if modelName(url) != nil { return "删除后，使用该模型需重新下载。" }
             return nil
         case .largeFile:
             // The user's own files; anything inside ~/Library belongs to an app.
             let path = CanonicalPath.url(url).path
             guard !path.hasPrefix(home.appending(path: "Library").path + "/") else { return nil }
-            if ["dmg", "pkg"].contains(url.pathExtension.lowercased()) { return "安装包。删了以后，要用得重新下载。" }
-            return "删了就没有了。请确认它不是还要用的素材或资料。"
+            if ["dmg", "pkg"].contains(url.pathExtension.lowercased()) { return "安装包，删除后如需使用需重新下载。" }
+            return "删除后无法自动恢复，请确认不再需要。"
         default:
             return nil
         }

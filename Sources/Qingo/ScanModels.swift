@@ -34,7 +34,7 @@ struct ScanItem: Identifiable, Codable, Sendable {
     let note: String
     let canTrash: Bool
     let identity: FileIdentity
-    /// Last change of the item itself, shown as "N 个月没动过" on rows the user decides about. Absent in older saved results.
+    /// Last change of the item itself, shown as "N 个月未修改" on rows the user decides about. Absent in older saved results.
     var modified: Date? = nil
 
     var name: String { url.lastPathComponent }
