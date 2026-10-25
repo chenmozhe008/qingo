@@ -406,29 +406,19 @@ private final class OwnerCache: @unchecked Sendable {
 }
 
 /// Chat apps are never cleaned here; this is the guide shown on their page.
+/// Paths are as the user clicked through them on 2026-10-25 (WeChat 4 and WeCom for Mac).
 enum ChatGuide {
-    static func steps(for bundleID: String) -> [String] {
-        switch bundleID {
-        case "com.tencent.xinWeChat":
-            ["点击微信左下角的「≡」", "选择「设置」", "打开「存储空间」", "先点「清理缓存」。清掉的是图片缩略图这类临时文件，不影响聊天记录",
-             "再点「管理」，按聊天查看哪个占得最多，勾选不需要的视频和文件删除"]
-        default:
-            ["点击企业微信左上角的头像", "选择「设置」", "打开「通用 → 存储空间」", "先清理缓存，不影响聊天记录",
-             "再按聊天查看大文件，勾选不需要的删除"]
-        }
+    /// The menu path to the app's storage page.
+    static func path(for bundleID: String) -> [String] {
+        bundleID == "com.tencent.xinWeChat"
+            ? ["左下角「≡」", "设置", "账号与存储", "存储空间「管理」"]
+            : ["左上角「企业微信」", "设置", "存储管理", "前往清理"]
     }
 
-    /// One- or two-word labels for the step strip; the full sentences open on demand.
-    static func shortSteps(for bundleID: String) -> [String] {
-        switch bundleID {
-        case "com.tencent.xinWeChat": ["左下角 ≡", "设置", "存储空间", "清理缓存", "管理大文件"]
-        default: ["头像", "设置", "通用 → 存储空间", "清理缓存", "删大文件"]
-        }
+    /// What to clean on that page, safest first, and which share of the data it frees.
+    static func steps(for bundleID: String) -> [(title: String, text: String, kind: ChatPart.Kind)] {
+        let media = bundleID == "com.tencent.xinWeChat" ? "聊天记录" : "聊天中的文件"
+        return [("先清「缓存」", "不影响聊天记录，可以放心清。", .cache),
+                ("再看「\(media)」", "按聊天看谁占得多，挑不要的视频和文件删。删了找不回，要留的先另存。", .media)]
     }
-
-    static let tips: [(symbol: String, tint: String, text: String)] = [
-        ("checkmark.circle.fill", "green", "缓存：清理后会自动重新下载，不影响聊天记录，可以放心清"),
-        ("exclamationmark.circle.fill", "amber", "聊天里的视频和文件：删除后无法恢复，删之前请确认已经另存"),
-        ("xmark.circle.fill", "pink", "聊天记录：需要保留的，先在「设置 → 聊天记录备份」里备份到手机或电脑")
-    ]
 }

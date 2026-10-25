@@ -1341,34 +1341,35 @@ struct MainView: View {
         .buttonStyle(.plain)
     }
 
-    /// Right column: verdict, a one-line step strip (details on demand), and what is safe to delete.
+    /// Right column: how big it is and what of it can actually go (estimated from the app's folders), then the
+    /// menu path and what to click there. Only the cache is a one-click clean; the bulk is media the user picks.
     private func chatGuide(_ chat: ChatAppUsage) -> some View {
+        let parts = chat.parts ?? []
+        let cache = parts.first { $0.kind == .cache }?.bytes ?? 0
+        let media = parts.first { $0.kind == .media }?.bytes ?? 0
         let version = NSWorkspace.shared.urlForApplication(withBundleIdentifier: chat.id)
             .flatMap { Bundle(url: $0)?.infoDictionary?["CFBundleShortVersionString"] as? String }
-        let tint = chatTint(chat.id)
-        let over = (chat.bytes ?? 0) >= 2_000_000_000
-        let key = "chat:\(chat.id)"
-        let expanded = store.expandedGroups.contains(key)
         let verdict: String = {
             guard let bytes = chat.bytes else { return "还读不到\(chat.name)占了多少" }
-            return over ? "\(chat.name)占了 \(ByteFormat.string(bytes))，建议清理" : "\(chat.name)占了 \(ByteFormat.string(bytes))，暂时不用清"
+            guard !parts.isEmpty else { return "\(chat.name)占了 \(ByteFormat.string(bytes))" }
+            return "\(chat.name)占了 \(ByteFormat.string(bytes))，能一键清的大约 \(ByteFormat.string(cache))"
         }()
         return VStack(alignment: .leading, spacing: 14) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text(verdict).font(.system(size: 20, weight: .bold))
-                    Text(chat.bytes == nil
-                         ? "在系统设置里给本应用开启「完全磁盘访问」，重新扫描后就能显示。"
-                         : "聊天记录只能在\(chat.name)里清理。先清缓存，不影响聊天记录；还不够再删大视频和文件。")
-                        .font(.system(size: 13)).foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 8)
-                VStack(alignment: .trailing, spacing: 8) {
-                    if chat.bytes == nil {
-                        Button { store.openFullDiskAccessSettings() } label: { Label("去开启权限", systemImage: "lock.open") }
-                            .buttonStyle(HeroButtonStyle())
+            VStack(alignment: .leading, spacing: 12) {
+                Text(verdict).font(.system(size: 20, weight: .bold)).fixedSize(horizontal: false, vertical: true)
+                if chat.bytes == nil {
+                    Text("在系统设置里给本应用开启「完全磁盘访问」，重新扫描后就能显示。")
+                        .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
+                    Button { store.openFullDiskAccessSettings() } label: { Text("去开启权限") }.buttonStyle(HeroButtonStyle())
+                } else if !parts.isEmpty {
+                    Text(media > cache ? "大头是聊天里的图片、视频和文件，只能你在\(chat.name)里自己挑着删。" : "缓存在\(chat.name)里点一下就能清，不影响聊天记录。")
+                        .font(.system(size: 13.5)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
+                    chatBar(parts, total: chat.bytes ?? 1)
+                    VStack(spacing: 0) {
+                        ForEach(parts) { part in chatPartRow(part, app: chat.name) }
                     }
+                    Text("按\(chat.name)的文件夹估算，和\(chat.name)里显示的数会有出入。")
+                        .font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
                 }
             }
             .padding(20)
@@ -1376,74 +1377,96 @@ struct MainView: View {
             .glass()
 
             VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text("在\(chat.name)里这样清").font(.system(size: 14, weight: .semibold))
-                    Spacer()
-                    Button {
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            if expanded { store.expandedGroups.remove(key) } else { store.expandedGroups.insert(key) }
-                        }
-                    } label: {
-                        Label(expanded ? "收起说明" : "详细说明", systemImage: expanded ? "chevron.up" : "chevron.down")
-                            .font(.system(size: 12.5, weight: .medium))
-                            .foregroundStyle(Theme.blue)
-                    }
-                    .buttonStyle(.plain)
-                }
+                Text("在\(chat.name)里这样清").font(.system(size: 15, weight: .semibold))
+                // A menu path, wrapping between steps (never inside one) when the window narrows.
                 FlowLayout(spacing: 6) {
-                    ForEach(Array(ChatGuide.shortSteps(for: chat.id).enumerated()), id: \.offset) { index, step in
+                    ForEach(Array(ChatGuide.path(for: chat.id).enumerated()), id: \.offset) { index, step in
                         HStack(spacing: 6) {
-                            if index > 0 {
-                                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.ink3)
-                            }
-                            HStack(spacing: 6) {
-                                Text("\(index + 1)")
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(width: 18, height: 18)
-                                    .background(Circle().fill(tint))
-                                Text(step).font(.system(size: 13, weight: .medium))
-                            }
-                            .padding(.leading, 5)
-                            .padding(.trailing, 11)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(tint.opacity(0.1)))
+                            if index > 0 { Text("›").foregroundStyle(Theme.ink3) }
+                            Text(step).fixedSize()
                         }
                     }
                 }
-                if expanded {
-                    VStack(alignment: .leading, spacing: 10) {
-                        ForEach(Array(ChatGuide.steps(for: chat.id).enumerated()), id: \.offset) { index, step in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text("\(index + 1).").font(.system(size: 13, weight: .semibold)).foregroundStyle(tint).frame(width: 18, alignment: .trailing)
-                                Text(step).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.fill(0.05)))
+                ForEach(Array(ChatGuide.steps(for: chat.id).enumerated()), id: \.offset) { index, step in
+                    let freed = parts.first { $0.kind == step.kind }?.bytes
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text("\(index + 1)")
+                            .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                            .frame(width: 22, height: 22)
+                            .background(Circle().fill(chatPartColor(step.kind)))
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(step.title).font(.system(size: 14, weight: .semibold))
+                                if let freed, freed > 0 {
+                                    Text("大约 \(ByteFormat.string(freed))").font(.system(size: 12.5)).foregroundStyle(Theme.ink2).monospacedDigit()
+                                }
                             }
+                            Text(step.text).font(.system(size: 13)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
                         }
-                        Text(version.map { "按\(chat.name) \($0) 写的，其他版本菜单位置可能略有不同。" } ?? "不同版本菜单位置可能略有不同。")
-                            .font(.system(size: 12)).foregroundStyle(Theme.ink3)
                     }
-                    .padding(.top, 4)
-                    .transition(.opacity)
                 }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .glass()
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("哪些能删").font(.system(size: 14, weight: .semibold))
-                ForEach(ChatGuide.tips, id: \.text) { tip in
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Image(systemName: tip.symbol)
-                            .foregroundStyle(tip.tint == "green" ? Theme.green : (tip.tint == "amber" ? Theme.amber : Theme.pink))
-                        Text(tip.text).font(.system(size: 13)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
-                    }
+                if let version {
+                    Text("按\(chat.name) \(version) 写的，其他版本菜单位置可能略有不同。").font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
                 }
             }
             .padding(20)
             .frame(maxWidth: .infinity, alignment: .leading)
             .glass()
         }
+    }
+
+    private func chatPartColor(_ kind: ChatPart.Kind) -> Color {
+        switch kind {
+        case .cache: Theme.green
+        case .media: Theme.amber
+        case .records: Theme.blue
+        case .drive: Theme.violet
+        case .other: Theme.ink3.opacity(0.5)
+        }
+    }
+
+    private func chatBar(_ parts: [ChatPart], total: Int64) -> some View {
+        GeometryReader { proxy in
+            HStack(spacing: 2) {
+                ForEach(parts) { part in
+                    Rectangle().fill(chatPartColor(part.kind))
+                        .frame(width: max(3, proxy.size.width * CGFloat(part.bytes) / CGFloat(max(total, 1)) - 2))
+                }
+            }
+            .clipShape(Capsule())
+        }
+        .frame(height: 12)
+    }
+
+    private func chatPartRow(_ part: ChatPart, app: String) -> some View {
+        let (title, tag): (String, String?) = {
+            switch part.kind {
+            case .cache: ("缓存", "放心清")
+            case .media: ("聊天里的图片和文件", "自己挑")
+            case .records: ("聊天记录", "别删")
+            case .drive: ("微盘里的文件", "你的文件")
+            case .other: ("其他（小程序、表情、收藏等）", nil)
+            }
+        }()
+        return HStack(spacing: 10) {
+            Circle().fill(chatPartColor(part.kind)).frame(width: 9, height: 9)
+            Text(title).font(.system(size: 13.5))
+            if let tag {
+                Text(tag).font(.system(size: 11.5, weight: .medium)).foregroundStyle(chatPartColor(part.kind))
+                    .padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(Capsule().fill(chatPartColor(part.kind).opacity(0.12)))
+            }
+            Spacer(minLength: 8)
+            Text(ByteFormat.string(part.bytes)).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+        }
+        .padding(.vertical, 7)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 
     private struct CreativeCard {
@@ -1457,7 +1480,6 @@ struct MainView: View {
         let isFamily: Bool
     }
 
-    /// One card per tool, or per maker for families (Adobe), largest first within each section.
     private func creativeCards(_ items: [ScanItem]) -> [CreativeCard] {
         var order: [String] = []
         var byKey: [String: [ScanItem]] = [:]

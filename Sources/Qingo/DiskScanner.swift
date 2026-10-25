@@ -196,8 +196,36 @@ struct DiskScanner: Sendable {
                 }
                 total += allocatedSize(of: root)
             }
-            return ChatAppUsage(id: bundleID, name: name, bytes: total)
+            return ChatAppUsage(id: bundleID, name: name, bytes: total, parts: chatParts(bundleID, total: total))
         }
+    }
+
+    /// Splits a chat app's data by what its folders hold (WeChat 4 / WeCom layouts, measured 2026-10-25).
+    /// Folders that are not there count as zero; whatever is not matched is "other".
+    private func chatParts(_ bundleID: String, total: Int64) -> [ChatPart] {
+        let data = policy.home.appending(path: "Library/Containers/\(bundleID)/Data")
+        let documents = data.appending(path: "Documents")
+        func size(_ urls: [URL]) -> Int64 { urls.reduce(0) { $0 + allocatedSize(of: $1) } }
+        func children(_ url: URL, _ name: String) -> [URL] {
+            ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).map { $0.appending(path: name) }
+        }
+        var parts: [ChatPart] = []
+        if bundleID == "com.tencent.xinWeChat" {
+            let accounts = documents.appending(path: "xwechat_files")
+            parts = [ChatPart(kind: .media, bytes: size(children(accounts, "msg"))),
+                     ChatPart(kind: .records, bytes: size(children(accounts, "db_storage"))),
+                     ChatPart(kind: .cache, bytes: size([documents.appending(path: "app_data"), data.appending(path: ".wxapplet"),
+                                                         data.appending(path: "Library/Caches")]))]
+        } else {
+            let profiles = documents.appending(path: "Profiles")
+            parts = [ChatPart(kind: .media, bytes: size(children(profiles, "Caches"))),
+                     ChatPart(kind: .cache, bytes: size([documents.appending(path: "cefcache"), data.appending(path: "Library/Caches"),
+                                                         data.appending(path: "Library/Application Support/WXWork/Log")] + children(profiles, "Publishsys"))),
+                     ChatPart(kind: .drive, bytes: size([data.appending(path: "WeDrive")]))]
+        }
+        let known = parts.reduce(Int64(0)) { $0 + $1.bytes }
+        parts.append(ChatPart(kind: .other, bytes: max(total - known, 0)))
+        return parts.filter { $0.bytes > 0 }
     }
 
     private func allocatedSize(of root: URL) -> Int64 {

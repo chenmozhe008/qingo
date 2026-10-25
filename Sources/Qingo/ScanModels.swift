@@ -64,6 +64,27 @@ struct ChatAppUsage: Codable, Sendable, Identifiable {
     let name: String
     /// nil when macOS denied reading the app's data (needs Full Disk Access).
     let bytes: Int64?
+    /// Where the space goes, estimated from the app's own folder layout; nil in older results or when unreadable.
+    var parts: [ChatPart]? = nil
+}
+
+/// One share of a chat app's data. Estimated from folder names inside the app's container, so shown as "大约".
+struct ChatPart: Codable, Sendable, Identifiable {
+    enum Kind: String, Codable, Sendable {
+        /// Cleaned by the app's own "清理缓存", without touching chats.
+        case cache
+        /// Pictures, videos and files sent in chats: only the user can pick what goes.
+        case media
+        /// The chat history database.
+        case records
+        /// WeCom's WeDrive: the user's own synced files.
+        case drive
+        case other
+    }
+
+    let kind: Kind
+    let bytes: Int64
+    var id: String { kind.rawValue }
 }
 
 struct CleanupReport: Sendable {
