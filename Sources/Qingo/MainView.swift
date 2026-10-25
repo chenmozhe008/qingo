@@ -1168,7 +1168,7 @@ struct MainView: View {
             VStack(alignment: .leading, spacing: 14) {
                 PageHeader(symbol: Theme.symbol(.creative), tint: Theme.color(.creative), title: ItemFilter.creative.title,
                            subtitle: (cleanable > 0 ? "\(found.count) 个工具的缓存和日志，下次打开会自动重新生成。" : "现在没有需要清理的。")
-                            + (kept > 0 ? "另有 \(ByteFormat.string(kept)) 是对话、作品和设置，不会动。" : "")) {
+                            + (kept >= 1_000_000 ? "另有 \(ByteFormat.string(kept)) 是对话、作品和设置，不会动。" : "")) {
                     cleanActions(scope: .creative)
                 }
                 .padding(.bottom, 4)
@@ -1943,6 +1943,28 @@ struct WindowDragEnabler: NSViewRepresentable {
             if let size = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--window-size=") })?
                 .dropFirst("--window-size=".count).split(separator: "x").compactMap({ Double($0) }), size.count == 2 {
                 window.setContentSize(NSSize(width: size[0], height: size[1]))
+            }
+            // `--snapshot=<file.png>`: draw the window's own views to a PNG after a few seconds
+            // (works while the screen is locked, when screencapture only returns black).
+            if let path = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--snapshot=") })?
+                .dropFirst("--snapshot=".count) {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 5) {
+                    guard let root = window.contentView?.superview ?? window.contentView,
+                          let rep = root.bitmapImageRepForCachingDisplay(in: root.bounds) else { return }
+                    root.cacheDisplay(in: root.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: String(path)))
+                    // Second rendering path (Core Animation), in case some views skip cacheDisplay.
+                    if let layer = root.layer, let ctx = CGContext(data: nil, width: Int(root.bounds.width * 2), height: Int(root.bounds.height * 2),
+                                                                     bitsPerComponent: 8, bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(),
+                                                                     bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) {
+                        ctx.scaleBy(x: 2, y: 2)
+                        layer.render(in: ctx)
+                        if let image = ctx.makeImage() {
+                            try? NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:])?
+                                .write(to: URL(fileURLWithPath: String(path) + ".ca.png"))
+                        }
+                    }
+                }
             }
         }
         return view

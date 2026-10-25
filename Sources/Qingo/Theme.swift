@@ -30,6 +30,8 @@ enum Theme {
     static let track = Color.adaptive(light: rgb(0.80, 0.81, 0.80), dark: rgb(0.30, 0.34, 0.34))
     /// Brand colour, 天青.
     static let blue = Color.adaptive(light: rgb(0.09, 0.53, 0.51), dark: rgb(0.38, 0.80, 0.75))
+    /// Fill behind white button text: the brand colour, deeper in dark mode so the label stays readable.
+    static let blueFill = Color.adaptive(light: rgb(0.09, 0.53, 0.51), dark: rgb(0.12, 0.50, 0.47))
     /// The lighter end of the brand colour; also the "cleanable cache" category.
     static let cyan = Color.adaptive(light: rgb(0.22, 0.65, 0.61), dark: rgb(0.48, 0.86, 0.80))
     /// 黛蓝, developer projects.
@@ -408,6 +410,7 @@ struct PageHeader<Actions: View>: View {
                 }
                 actions
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -430,7 +433,7 @@ struct HeroButtonStyle: ButtonStyle {
             .foregroundStyle(.white)
             .padding(.horizontal, 28)
             .padding(.vertical, 13)
-            .background(Capsule().fill(Theme.blue))
+            .background(Capsule().fill(Theme.blueFill))
             .overlay(Capsule().strokeBorder(LinearGradient(colors: [Color.white.opacity(0.35), .clear], startPoint: .top, endPoint: .bottom), lineWidth: 1))
             .shadow(color: Theme.blue.opacity(0.35), radius: 14, y: 7)
             .opacity(configuration.isPressed ? 0.85 : 1)

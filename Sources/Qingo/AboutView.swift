@@ -211,7 +211,7 @@ struct AboutView: View {
                             .foregroundStyle(.white)
                             .padding(.horizontal, 14)
                             .padding(.vertical, 8)
-                            .background(Capsule().fill(Theme.blue))
+                            .background(Capsule().fill(Theme.blueFill))
                     }
                     .padding(12)
                     .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.fill(0.06)))

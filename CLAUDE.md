@@ -84,7 +84,7 @@
 
 - 截图只截本 App 窗口：按 PID 取最大窗口 ID → `screencapture -l <id>`（不受其他窗口遮挡）
 - 切分类：`defaults write io.github.chenmozhe008.qingo lastFilter "<分类名>"` 后重开 App；**不要用模拟鼠标点击**，用户可能在用电脑（2026-10-20 点到过微信）
-- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--window-size=960x640` 启动时把窗口设成指定大小（截窄窗口用，不依赖辅助功能权限）；`--category=<分类 rawValue>`（如 `大文件与工程`、`剪辑与设计软件`）直接打开分类页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
+- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--window-size=960x640` 启动时把窗口设成指定大小（截窄窗口用，不依赖辅助功能权限）；`--snapshot=<file.png>` 启动 5 秒后把窗口自己画成 PNG（**屏幕锁着时 screencapture 只出黑图，用这个验版面**；玻璃卡片画不出来、带动画的页面可能缺块，只看布局）；`--category=<分类 rawValue>`（如 `大文件与工程`、`剪辑与设计软件`）直接打开分类页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标
