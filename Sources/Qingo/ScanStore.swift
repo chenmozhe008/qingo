@@ -12,9 +12,30 @@ final class ScanStore: ObservableObject {
             var buckets: [ItemFilter: [ScanItem]] = [:]
             for category in ItemFilter.allCases { buckets[category] = result?.items.filter { category.contains($0) } ?? [] }
             itemsByCategory = buckets
+            breakdowns = [:]
         }
     }
     private var itemsByCategory: [ItemFilter: [ScanItem]] = [:]
+    /// What is inside a read-only data row, measured when the user opens it ("里面有什么").
+    @Published var breakdowns: [URL: [DataPart]] = [:]
+
+    func breakdownKey(_ item: ScanItem) -> String { "data:" + item.url.path }
+
+    func toggleBreakdown(_ item: ScanItem) {
+        let key = breakdownKey(item)
+        if expandedGroups.contains(key) {
+            expandedGroups.remove(key)
+            return
+        }
+        expandedGroups.insert(key)
+        guard breakdowns[item.id] == nil else { return }
+        let listed = result?.items.filter { $0.url.path.hasPrefix(item.url.path + "/") } ?? []
+        let app = CreativeApp.of(item)
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let parts = DataBreakdown.parts(of: item.url, app: app, excluding: listed)
+            await MainActor.run { self?.breakdowns[item.id] = parts }
+        }
+    }
     /// Items the user may delete after confirming, with what deleting costs (see `SafetyPolicy.decisionNote`).
     @Published private(set) var decisionNotes: [URL: String] = [:]
     /// Why an item could not be moved in the last cleanup; shown on its row until the next scan.
@@ -111,6 +132,11 @@ final class ScanStore: ObservableObject {
         if arguments.contains("--scan") { scan() }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
         creativeScrollTarget = arguments.first { $0.hasPrefix("--creative-app=") }.map { String($0.dropFirst("--creative-app=".count)) }
+        // `--expand-data`: with --creative-app, also open that tool's "里面有什么".
+        if arguments.contains("--expand-data"), let target = creativeScrollTarget,
+           let data = result?.items.first(where: { CreativeApp.of($0)?.id == target && !$0.canTrash && !isDecidable($0) }) {
+            toggleBreakdown(data)
+        }
         // `--tool=uninstall` / `--tool=dev` (add `--dev-scan` to rescan the dev folder).
         if let page = arguments.first(where: { $0.hasPrefix("--tool=") }) {
             uninstaller.pendingSelection = arguments.first { $0.hasPrefix("--select-app=") }.map { String($0.dropFirst("--select-app=".count)) }

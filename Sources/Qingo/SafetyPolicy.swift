@@ -29,7 +29,8 @@ struct SafetyPolicy: Sendable {
         let path = CanonicalPath.url(url).path
         if extraProtectedRoots.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) { return true }
         let allowedInside = ["Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
-                             "Library/Application Support/Shandianshuo/recordings", "Library/Developer/Xcode/DerivedData"]
+                             "Library/Application Support/Shandianshuo/recordings", "Library/Developer/Xcode/DerivedData",
+                             ".codex/sessions", ".codex/archived_sessions", ".codex/generated_images"]
             .map { home.appending(path: $0).path }
         if allowedInside.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
         return protectedRoots.contains { protected in
@@ -45,6 +46,10 @@ struct SafetyPolicy: Sendable {
         }
         if path == home.appending(path: "Library/Application Support/Shandianshuo").path {
             return [url.appending(path: "recordings")]
+        }
+        // Codex's conversations and generated images; its credentials, settings and databases stay protected.
+        if path == home.appending(path: ".codex").path {
+            return ["sessions", "archived_sessions", "generated_images"].map { url.appending(path: $0) }
         }
         // Only Xcode's build cache; Archives, device support and the rest stay protected.
         if path == home.appending(path: "Library/Developer/Xcode").path {
@@ -76,6 +81,7 @@ struct SafetyPolicy: Sendable {
         if isVirtualEnvironment(url) {
             return "Python 虚拟环境。删了以后，要重新创建并安装依赖，这个工程才能运行。"
         }
+        if let old = oldToolHistory(url) { return old.description }
         // Only the outermost folder of a recognized tool; its cleanable caches are listed separately.
         if let app = CreativeApp.dataOwner(url, home: home), CreativeApp.cacheNote(url, home: home) == nil,
            CreativeApp.dataOwner(url.deletingLastPathComponent(), home: home) != app || isProtected(url.deletingLastPathComponent()) {
@@ -174,6 +180,7 @@ struct SafetyPolicy: Sendable {
         let cacheChildren = (try? FileManager.default.contentsOfDirectory(at: libraryCaches, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         let extra = [
             ".cache/uv", ".cache/pip", ".npm/_cacache", "Library/Developer/Xcode/DerivedData",
+            ".codex/sessions", ".codex/archived_sessions", ".codex/generated_images",
             "Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
             "Library/Application Support/Notion/Partitions/notion/Cache",
             "Library/Application Support/Notion/Partitions/notion/Code Cache",
@@ -225,10 +232,11 @@ struct SafetyPolicy: Sendable {
         case .review:
             if url.lastPathComponent == "node_modules", hasNodeManifest(near: url),
                !url.deletingLastPathComponent().path.contains("/node_modules") {
-                return "删了以后，这个工程要重新安装依赖（npm install 等）才能运行。"
+                return "删了以后，这个工程要重新安装依赖（npm install 等）才能运行；它要是在定时自动运行，会停下来。"
             }
-            if isVirtualEnvironment(url) { return "删了以后，要重新创建虚拟环境并安装依赖。" }
+            if isVirtualEnvironment(url) { return "删了以后，要重新创建虚拟环境并安装依赖；用它定时自动运行的脚本会停下来。" }
             if modelName(url) != nil { return "删了以后，要用这个模型得重新下载。" }
+            if let old = oldToolHistory(url) { return old.cost }
             return nil
         case .largeFile:
             // The user's own files; anything inside ~/Library belongs to an app.
@@ -239,6 +247,47 @@ struct SafetyPolicy: Sendable {
         default:
             return nil
         }
+    }
+
+    /// Conversations and generated images untouched for this long may be deleted after confirming.
+    static let oldHistoryDays = 30
+
+    /// A tool-history folder old enough to offer: one day of Codex conversations (`.codex/sessions/YYYY/MM/DD`)
+    /// or one session's generated images, with nothing in it changed for `oldHistoryDays`.
+    func oldToolHistory(_ url: URL) -> (kind: HistoryKind, description: String, cost: String)? {
+        guard let kind = historyKind(url) else { return nil }
+        let cutoff = Date().addingTimeInterval(-Double(Self.oldHistoryDays) * 86_400)
+        guard let newest = Self.newestFile(in: url), newest < cutoff else { return nil }
+        return kind == .conversations
+            ? (.conversations, "Codex 这一天的对话记录，\(Self.oldHistoryDays) 天以上没动过。", "删了以后，这些对话在 Codex 里不能再打开和接着聊。")
+            : (.images, "Codex 在一次对话里生成的图片，\(Self.oldHistoryDays) 天以上没动过。", "删了图片就没有了，需要的先另存出来。")
+    }
+
+    enum HistoryKind { case conversations, images }
+
+    /// Which kind of history folder this path is, by its place alone (cheap; age is checked by `oldToolHistory`).
+    func historyKind(_ url: URL) -> HistoryKind? {
+        let path = CanonicalPath.url(url).path
+        let sessions = home.appending(path: ".codex/sessions").path + "/"
+        let images = home.appending(path: ".codex/generated_images").path + "/"
+        if path.hasPrefix(sessions), path.dropFirst(sessions.count).split(separator: "/").count == 3 { return .conversations }
+        if path.hasPrefix(images), path.dropFirst(images.count).split(separator: "/").count == 1 { return .images }
+        return nil
+    }
+
+    /// Whether a folder found inside a tool's data is listed on its own (a model, or old history) rather than
+    /// counted in the data row. History folders are only emitted when old, so the path is enough here.
+    func isOwnRowInToolData(_ url: URL) -> Bool { modelName(url) != nil || historyKind(url) != nil }
+
+    static func newestFile(in url: URL) -> Date? {
+        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey]) else { return nil }
+        var newest: Date?
+        for case let file as URL in enumerator {
+            guard let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey]),
+                  values.isRegularFile == true, let date = values.contentModificationDate else { continue }
+            if newest == nil || date > newest! { newest = date }
+        }
+        return newest
     }
 
     /// "Qwen/Qwen2.5-7B" for a Hugging Face hub model or an LM Studio model folder, nil otherwise.

@@ -111,4 +111,37 @@ struct ToolSafetyTests {
         let data = try #require(result.items.first { $0.url.path == CanonicalPath.url(root).path })
         #expect(!data.canTrash && data.bytes >= 10_000_000 && data.bytes < 10_001_000)
     }
+
+    @Test func oldCodexHistoryIsOfferedCredentialsStayProtected() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let codex = home.appending(path: ".codex")
+        let oldDay = codex.appending(path: "sessions/2026/05/01")
+        let newDay = codex.appending(path: "sessions/2026/10/24")
+        let oldImages = codex.appending(path: "generated_images/old-session")
+        for folder in [oldDay, newDay, oldImages, codex.appending(path: "memories")] {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try writeSparse(folder.appending(path: "data"), bytes: 2_000_000)
+        }
+        try Data("secret".utf8).write(to: codex.appending(path: "auth.json"))
+        let old = Date().addingTimeInterval(-60 * 86_400)
+        for file in [oldDay.appending(path: "data"), oldImages.appending(path: "data")] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: file.path)
+        }
+        let policy = SafetyPolicy(home: home)
+        let result = try DiskScanner(policy: policy).scanKnownCaches()
+        func row(_ url: URL) -> ScanItem? { result.items.first { $0.url.path == CanonicalPath.url(url).path } }
+        for folder in [oldDay, oldImages] {
+            let item = try #require(row(folder))
+            #expect(!item.canTrash && policy.decisionNote(for: item) != nil && CreativeApp.of(item) == .codex)
+            let trashed = try TrashService(policy: policy).moveToTrash(item)
+            try? FileManager.default.removeItem(at: trashed)
+        }
+        // Recent days stay in the read-only sessions row; nothing outside the three folders is even listed.
+        #expect(row(newDay) == nil)
+        let sessions = try #require(row(codex.appending(path: "sessions")))
+        #expect(!sessions.canTrash && policy.decisionNote(for: sessions) == nil && sessions.bytes == 2_000_000)
+        #expect(!result.items.contains { $0.url.path.contains("memories") || $0.url.path.hasSuffix("auth.json") })
+        #expect(policy.isProtected(codex.appending(path: "auth.json")))
+    }
 }

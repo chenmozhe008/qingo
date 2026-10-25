@@ -59,7 +59,9 @@
 - 分类（`ItemFilter`）：可清理缓存（青）/ 创作与 AI 工具（粉）/ 微信与企业微信（绿）/ 需要判断（琥珀）/ 大文件与工程（紫）。界面名走 `ItemFilter.title`；`.creative` 的 rawValue 仍是「剪辑与设计软件」（存在 UserDefaults `lastFilter` 里，别改）
 - 创作与 AI 工具（2026-10-21 用户定：**国内外同类软件都要覆盖**，自己没装的别人也会用）：清单在 `CreativeApps.swift`，按 6 组（剪辑与调色 / 设计与三维 / AI 生图与视频 / AI 助手 / AI Coding 与智能体 / 本地模型）。规则：工具目录整体只读（`dataOwner`）；能清的只有它在 `~/Library/Caches` 的文件夹、`caches` 里列出的目录、应用目录下一层的浏览器内核缓存（`engineCaches`）。加新工具只改这个文件；**拿不准的路径只放 folders/roots（只读），不放 caches**
 - 工具数据里自动认作可清理的（2026-10-25 用户问「WorkBuddy 不知道怎么清理，能直接清吗」后加，`CreativeApp.cacheNote`）：`Application Support/<工具>/` 下一层的内核缓存；更深处的内核缓存只在**上一级是浏览器配置目录**（有 `Preferences`/`Local State` 或在 `Partitions` 里）时才算；任意深度的 `Crashpad`/`crashpad`；工具顶层目录下的 `logs`/`Logs`；`~/Library/Logs/<认得的工具>`。**不认的**：名字带 cache 的普通文件夹（如 WorkBuddy 的 `plugins/cache`，同类工具在这里放已装插件）、`~/Library/Logs` 整体（里面有用户自己定时任务的日志）
-- 「在 XX 里处理」按钮只在该工具写了 `cleanHow`（具体怎么清）时出现，否则是「查看位置」——光打开软件不告诉怎么清没用（用户反馈）；`cleanHow` 只写查证过的做法
+- 只读数据行的按钮是「里面有什么」（2026-10-25 用户：「查看位置点进去也不知道怎么删」）：点开按子文件夹拆成白话（`DataBreakdown.describe`：对话记录 / 插件和扩展 / 登录状态 / 运行环境…），每项写怎么处理；只在名字看不懂的大子文件夹里往下钻一层；认不出的老实写「用途不明，建议别动」。行名也按内容叫（「最近的对话记录」），认不出才叫「本地数据」。`cleanHow` 只写查证过的做法
+- 旧对话/旧图片（`SafetyPolicy.oldToolHistory`，30 天没动）：Codex 的 `~/.codex/sessions/年/月/日` 和 `generated_images/<会话>` 按天/按会话列为第二档。`~/.codex` 仍在保护名单，只放开 sessions / archived_sessions / generated_images 三个子目录（登录凭据、设置、记忆、数据库不碰）。Claude Code 自己默认只留 30 天，不另做
+- 同一工具里第二档同类项也合成一行（如「30 天前的对话记录，共 55 处」，琥珀色）；模型仍一个一行
 - 页面：按组分区、每个工具一张卡（缓存可勾选 / 单个模型确认后可删 / 本地数据只读带「在 XX 里处理」）；一个工具有 2 处以上可清理项时合成一行「可以清理」（写种类和处数，点行全选、箭头展开明细；用户嫌零碎行太多，2026-10-25）；已安装没占用的合成一行；底部可展开「能识别的 N 款工具」。命令行工具没有 App 图标时用 `iconApp` 借厂商 App 图标，否则按组配色的图标块
 - 只读数据 < 1 MB 不列（`minToolDataBytes`）；Containers 下的沙盒目录不碰（读它会触发系统授权弹窗）
 - 微信 / 企业微信：**只读量大小，永不提供删除**（`DiskScanner.chatAppUsage`）。专页左右两栏：左＝总占用圆环 + 两款软件卡（点选切换）；右＝结论卡（+「打开微信」）/ 横向步骤条（`ChatGuide.shortSteps`，详细句子点「详细说明」才展开）/「哪些能删」三条；两栏高度要大致对齐（用户嫌竖排步骤默认占地方、也嫌右边空）
@@ -104,17 +106,20 @@
 
 ## 工具：卸载应用 / 开发工程（2026-10-24 用户定，效果图 `output/mockups/i-uninstall.png`、`i-dev.png`）
 
-左栏「扫描位置」下方「工具」分组两项，各自独立页面和扫描，不进总览 3×2 卡片、不动分类（`ScanStore.tool`，非 nil 时右侧显示工具页；点位置/分类/总览回到扫描结果）。
+左栏「扫描位置」下方「工具」分组两项（图标和分类一样用彩色 `IconTile`：卸载=橙色垃圾桶，开发=靛蓝 </>），各自独立页面和扫描，不进总览 3×2 卡片、不动分类（`ScanStore.tool`，非 nil 时右侧显示工具页；点位置/分类/总览回到扫描结果）。
 
 **卸载应用**（`AppUninstaller.swift`）
 - 列 /Applications、~/Applications（含下一层子文件夹）里的 App；排除 `com.apple.*`、小清自己。左列表按大小 / 按多久没用（Spotlight `kMDItemLastUsedDate`），搜索；右侧是选中 App 的全部痕迹
 - 痕迹只在 ~/Library 的固定子目录按 bundle id / App 名精确找：Application Support、Caches、Preferences（`<id>.plist` 和 `<id>.*.plist`）、Saved Application State、HTTPStorages、WebKit、Cookies、Logs、LaunchAgents（文件名以 id 开头或 plist 里指向该 App）。默认全勾（**偏好设置也勾**，用户定）；`CreativeApp` 认识的工具，其 Application Support 目录和 `roots` 算「工具数据」**默认不勾**
 - Containers / Group Containers 不读不删（读会弹授权），存在就提示去访达手动删；`SafetyPolicy.isProtected` 的路径跳过
 - 正在运行的 App 不让卸载；App 本身用 `NSWorkspace.recycle`（root 所有的 App 系统会要密码），其余用 `trashItem`，删前核对身份和占用；全部进废纸篓，可撤销
+- 打开即显示上次的列表和大小（`results/apps.json`），后台 4 个一组静默重量，不清空、不逐行转圈；选中还没量过的 App 立刻单独量（用户嫌「一打开就像在扫描」）
+- 详情页三行：App 本身 / 「相关文件」（所有小残留合一行，默认勾，箭头展开）/ 「工具数据」（合一行，琥珀，默认不勾）——用户嫌一堆 KB 级小行
 - 「已删除应用的残留」：上述目录里 bundle id 形状（≥3 段、非 com.apple./group.）、且**没有任何已装 App 同厂商前缀（前两段）**、LaunchServices 也找不到的条目，按 id 合并成一行；算第二档，默认不勾、确认后删
 
 **开发工程**（`DevProjects.swift`）
 - 默认扫 ~/Coding（`devRoot`，可「更换文件夹…」，用户定只看这一个）；工程＝含 package.json / Cargo.toml / Package.swift / pyproject.toml / requirements.txt / go.mod / build.gradle / Podfile / pubspec.yaml / .git 的目录，产物归到离扫描根最近的那个工程（monorepo 合成一张卡）
+- **「全选」只选第一档（构建缓存）**；`node_modules`/虚拟环境只能单独勾，提示写明「定时自动运行的工程会停」（用户：非开发者也要用，必须确定能清；本机 a-stock 早报每天靠 `.venv` 跑）。不再有「选中这 N 个工程」
 - 产物沿用 `SafetyPolicy`：构建缓存是第一档（新增 `.turbo`、`.parcel-cache`、`.nuxt`、`.svelte-kit`、`.ruff_cache`、旁边有 build.gradle 的 `.gradle`），`node_modules` / 虚拟环境是第二档；代码不碰
 - 「多久没动」＝工程里产物和 .git 以外文件的最新修改时间；筛选「全部（默认）/ 3 个月以上 / 半年以上」；后两档才有「选中这 N 个工程」（只选该筛选下的产物）；工程产物合计 < 20 MB 不列；结果存 `results/dev.json`
 

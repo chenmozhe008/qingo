@@ -183,11 +183,16 @@ final class DevStore: ObservableObject {
         if ids.isSubset(of: selected) { selected.subtract(ids) } else { selected.formUnion(ids) }
     }
 
-    /// Everything in the projects the current filter shows.
-    func selectFiltered() {
+    /// Regenerable build output in the projects the filter shows: the only thing "全选" picks.
+    /// Dependencies and virtual environments need reinstalling and are picked one by one.
+    var safeInFilter: [ScanItem] { projects(in: filter).flatMap(\.artifacts).filter { !isDecidable($0) } }
+
+    func selectSafe() {
         guard !isCleaning else { return }
-        selected.formUnion(projects(in: filter).flatMap(\.artifacts).map(\.id))
+        selected.formUnion(safeInFilter.map(\.id))
     }
+
+    func clearSafe() { selected.subtract(safeInFilter.map(\.id)) }
 
     func clearSelection() { selected.removeAll() }
 

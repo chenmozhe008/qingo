@@ -408,7 +408,26 @@ struct UninstallView: View {
                 }
                 .padding(18)
                 if let traces {
-                    ForEach(traces) { trace in traceRow(trace) }
+                    // The bundle, then all small leftovers as one row (details on demand), then a tool's own data.
+                    let related = traces.filter { $0.kind != .app && $0.kind != .toolData }
+                    ForEach(traces.filter { $0.kind == .app }) { trace in traceRow(trace) }
+                    if related.count > 1 {
+                        mergedRow("相关文件", traces: related, amber: false, open: $store.showRelated)
+                        if store.showRelated {
+                            ForEach(related) { trace in traceRow(trace).padding(.leading, 30) }
+                        }
+                    } else {
+                        ForEach(related) { trace in traceRow(trace) }
+                    }
+                    let toolData = traces.filter { $0.kind == .toolData }
+                    if toolData.count > 1 {
+                        mergedRow("工具数据", traces: toolData, amber: true, open: $store.showToolData)
+                        if store.showToolData {
+                            ForEach(toolData) { trace in traceRow(trace).padding(.leading, 30) }
+                        }
+                    } else {
+                        ForEach(toolData) { trace in traceRow(trace) }
+                    }
                 } else {
                     ProgressView().padding(30)
                 }
@@ -428,6 +447,40 @@ struct UninstallView: View {
                 .padding(.vertical, 12)
             }
         }
+    }
+
+    /// Several traces as one row: "相关文件：缓存、偏好设置，共 5 处", or a tool's own data, unpicked by default.
+    private func mergedRow(_ title: String, traces: [AppTrace], amber: Bool, open: Binding<Bool>) -> some View {
+        let picked = traces.filter { store.picked.contains($0.id) }.count
+        let kinds = traces.reduce(into: [String]()) { names, trace in
+            if !names.contains(trace.kind.title) { names.append(trace.kind.title) }
+        }
+        let detail = amber ? "对话、模型、设置等，默认不删，共 \(traces.count) 处" : kinds.joined(separator: "、") + "，共 \(traces.count) 处"
+        return HStack(spacing: 12) {
+            ToolCheckbox(on: picked > 0, amber: amber, partial: picked > 0 && picked < traces.count)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 13.5, weight: .medium))
+                Text(detail)
+                    .font(.system(size: 12)).foregroundStyle(amber ? Theme.amber : Theme.ink3).lineLimit(1).truncationMode(.tail)
+            }
+            Spacer(minLength: 8)
+            Text(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes })).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+                .frame(width: 80, alignment: .trailing)
+            Button { withAnimation(.easeOut(duration: 0.18)) { open.wrappedValue.toggle() } } label: {
+                Image(systemName: open.wrappedValue ? "chevron.up.circle.fill" : "chevron.down.circle")
+                    .font(.system(size: 16))
+                    .foregroundStyle(open.wrappedValue ? Theme.cyan : Theme.ink3)
+                    .frame(width: 24, height: 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(open.wrappedValue ? "收起" : "展开查看每一处")
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+        .contentShape(Rectangle())
+        .onTapGesture { store.toggle(traces) }
     }
 
     private func traceRow(_ trace: AppTrace) -> some View {
@@ -600,8 +653,9 @@ struct DevProjectsView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text(result.projects.isEmpty ? "没有发现占地方的依赖和构建产物" : "依赖和构建产物共 \(ByteFormat.string(total))")
                         .font(.system(size: 24, weight: .bold))
-                    Text("按多久没动排序。很久没碰的工程，可以先删掉依赖和构建产物，要用时再装；代码一个不碰。")
+                    Text("青色的构建缓存可以放心清，下次运行会自动重新生成，「全选」只选这些。黄色的依赖和虚拟环境删了要重新安装，正在用的工程（包括每天定时自动运行的）别删。代码一个不碰。")
                         .font(.system(size: 13)).foregroundStyle(Theme.ink2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if !result.projects.isEmpty {
                     HStack(spacing: 10) {
@@ -614,12 +668,6 @@ struct DevProjectsView: View {
                         .labelsHidden()
                         .frame(width: 380)
                         Spacer()
-                        // Bulk pick only for the "long untouched" ranges, never for everything.
-                        if store.filter != .all, !shown.isEmpty {
-                            Button("选中这 \(shown.count) 个工程") { withAnimation(.easeOut(duration: 0.15)) { store.selectFiltered() } }
-                                .buttonStyle(ToolbarButtonStyle(large: true))
-                                .foregroundStyle(Theme.amber)
-                        }
                     }
                 }
                 ToolResultBanner(report: store.report, message: store.message, canUndo: !store.undoable.isEmpty,
@@ -740,10 +788,17 @@ struct DevProjectsView: View {
     private var footer: some View {
         let items = store.selectedItems
         let decided = store.selectedDecided.count
+        let safe = store.safeInFilter
+        let allSafe = !safe.isEmpty && safe.allSatisfy { store.selected.contains($0.id) }
         return ToolFooter(title: items.isEmpty ? "选择要清理的项目" : "已选 \(items.count) 项，共 \(ByteFormat.string(ScanStore.sum(items)))",
-                          detail: items.isEmpty ? "点一下列表里的项目就能选中"
+                          detail: items.isEmpty ? "「全选」只选能放心清的构建缓存"
                               : decided > 0 ? "其中 \(decided) 项删了要重新安装，确认时会逐条列出" : "移入废纸篓后仍可恢复；清空后才会释放空间。") {
-            if !items.isEmpty {
+            if !safe.isEmpty {
+                Button(allSafe ? "取消全选" : "全选") { withAnimation(.easeOut(duration: 0.15)) { allSafe ? store.clearSafe() : store.selectSafe() } }
+                    .buttonStyle(ToolbarButtonStyle(large: true))
+                    .keyboardShortcut("a", modifiers: .command)
+            }
+            if !items.isEmpty, decided > 0 || !allSafe {
                 Button("取消选择") { withAnimation(.easeOut(duration: 0.15)) { store.clearSelection() } }.buttonStyle(ToolbarButtonStyle(large: true))
             }
             Button(store.isCleaning ? "正在清理…" : "移入废纸篓…") { store.reviewCleanup() }

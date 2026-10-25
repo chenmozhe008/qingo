@@ -393,8 +393,8 @@ struct MainView: View {
                     addFolderRow
 
                     sectionHeader("工具").padding(.top, 12)
-                    toolRow("卸载应用", icon: "minus.circle", page: .uninstall)
-                    toolRow("开发工程", icon: "chevron.left.forwardslash.chevron.right", page: .dev)
+                    toolRow("卸载应用", icon: "trash.fill", tint: Theme.orange, page: .uninstall)
+                    toolRow("开发工程", icon: "chevron.left.forwardslash.chevron.right", tint: Theme.indigo, page: .dev)
 
                     if store.result != nil {
                         sectionHeader("分类").padding(.top, 12)
@@ -468,22 +468,20 @@ struct MainView: View {
         .padding(.top, 10)
     }
 
-    private func toolRow(_ title: String, icon: String, page: ScanStore.ToolPage) -> some View {
+    /// Same colored tile as the categories, so the tools read as part of the app rather than plain links.
+    private func toolRow(_ title: String, icon: String, tint: Color, page: ScanStore.ToolPage) -> some View {
         let active = store.tool == page
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.openTool(page) } } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 24)
-                    .foregroundStyle(active ? Theme.cyan : Theme.ink2)
+                IconTile(symbol: icon, tint: tint, size: 24)
                 Text(title)
                 Spacer(minLength: 4)
             }
             .font(.system(size: 14))
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.08) : .clear))
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.13) : .clear))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1476,7 +1474,7 @@ struct MainView: View {
                 }
                 VStack(alignment: .leading, spacing: 3) {
                     Text(app.title).font(.system(size: 15.5, weight: .semibold))
-                    Text(items.contains(where: store.isDecidable) ? "下载的模型可以挑着删，删了要重新下载"
+                    Text(items.contains(where: { store.policy.modelName($0.url) != nil }) ? "下载的模型可以挑着删，删了要重新下载"
                          : items.contains(where: \.canTrash) || app.cleanHow != nil ? app.hint : "\(app.group.dataNote)只统计、不删除")
                         .font(.system(size: 12)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
                 }
@@ -1485,16 +1483,20 @@ struct MainView: View {
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 14)
-            // Several cleanable parts (engine caches, logs, crash reports…) read as one row; details on demand.
-            let cleanable = items.filter(\.canTrash)
-            if cleanable.count > 1 {
-                cleanableSummaryRow(app, items: cleanable)
-                if store.expandedGroups.contains("creative:\(app.id)") {
-                    ForEach(cleanable) { item in creativeRow(item, app: app).padding(.leading, 30) }
+            // Several parts of one kind read as one row, details on demand: the regenerable caches, logs and
+            // crash reports together; items to decide about per kind ("30 天前的对话记录"). Models stay one per row.
+            ForEach(rowGroups(app, items: items), id: \.key) { group in
+                if group.items.count > 1 {
+                    summaryRow(app, group: group)
+                    if store.expandedGroups.contains(group.key) {
+                        ForEach(group.items) { item in creativeRow(item, app: app).padding(.leading, 30) }
+                    }
+                } else {
+                    creativeRow(group.items[0], app: app)
+                    if store.expandedGroups.contains(store.breakdownKey(group.items[0])) {
+                        breakdownPanel(group.items[0], app: app)
+                    }
                 }
-                ForEach(items.filter { !$0.canTrash }) { item in creativeRow(item, app: app) }
-            } else {
-                ForEach(items) { item in creativeRow(item, app: app) }
             }
         }
         .glass()
@@ -1517,15 +1519,14 @@ struct MainView: View {
                 capsuleTag("可在此清理", tint: Theme.cyan)
             } else if store.isDecidable(item) {
                 capsuleTag("确认后可删", tint: Theme.amber)
-            } else if app.isInstalled, !app.bundleID.isEmpty, app.cleanHow != nil {
-                // Only when the card says how to clean it in the tool; otherwise opening the app is no help.
-                Button { store.openApp(bundleID: app.bundleID) } label: { capsuleTag("在\(app.shortName)里处理", tint: Theme.blue) }
-                    .buttonStyle(.plain)
-                    .help("打开\(app.shortName)，在软件里清理；本应用不删除此处数据")
             } else {
-                Button { reveal(item) } label: { capsuleTag("查看位置", tint: Theme.blue) }
-                    .buttonStyle(.plain)
-                    .help("在访达中定位；本应用不删除此处数据")
+                // Read-only data: explain what is inside and what to do about each part, not just open a folder.
+                let open = store.expandedGroups.contains(store.breakdownKey(item))
+                Button { withAnimation(.easeOut(duration: 0.18)) { store.toggleBreakdown(item) } } label: {
+                    capsuleTag(open ? "收起" : "里面有什么", tint: Theme.blue)
+                }
+                .buttonStyle(.plain)
+                .help("看看里面都是什么、哪些能删、怎么删")
             }
             Text(ByteFormat.string(item.bytes))
                 .font(.system(size: 14, weight: .medium))
@@ -1542,6 +1543,8 @@ struct MainView: View {
         .onTapGesture {
             if selectable {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.setCleanupSelected(item, selected: !picked) }
+            } else if !item.canTrash {
+                withAnimation(.easeOut(duration: 0.18)) { store.toggleBreakdown(item) }
             }
         }
         .onHover { inside in
@@ -1550,9 +1553,83 @@ struct MainView: View {
         .contextMenu { Button("在访达中显示") { reveal(item) } }
     }
 
-    /// One row for all of a tool's regenerable parts: "界面缓存、日志、崩溃报告，共 9 处".
-    private func cleanableSummaryRow(_ app: CreativeApp, items: [ScanItem]) -> some View {
-        let key = "creative:\(app.id)"
+    /// "里面有什么": each part of a read-only data folder in plain words, with what to do about it.
+    private func breakdownPanel(_ item: ScanItem, app: CreativeApp) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if let parts = store.breakdowns[item.id] {
+                ForEach(parts) { part in
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Text(part.label).font(.system(size: 13.5, weight: .medium))
+                                if part.label != part.name, part.name != "其他" {
+                                    Text(part.name).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(Theme.ink3)
+                                }
+                            }
+                            Text(part.advice).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 10)
+                        Text(ByteFormat.string(part.bytes)).font(.system(size: 13, weight: .medium)).monospacedDigit()
+                            .frame(width: 84, alignment: .trailing)
+                    }
+                    .padding(.vertical, 8)
+                    .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                    .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([part.id]) } }
+                }
+                HStack(spacing: 8) {
+                    Text("这里不直接删这些数据，免得误删你的对话和作品。").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                    Spacer()
+                    if app.isInstalled, !app.bundleID.isEmpty {
+                        Button("打开\(app.shortName)") { store.openApp(bundleID: app.bundleID) }.buttonStyle(GhostButtonStyle())
+                    }
+                    Button("在访达中显示") { reveal(item) }.buttonStyle(GhostButtonStyle())
+                }
+                .padding(.top, 10)
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在看里面有什么…").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                }
+                .padding(.vertical, 10)
+            }
+        }
+        .padding(.leading, 100)
+        .padding(.trailing, 18)
+        .padding(.bottom, 12)
+        .background(Theme.fill(0.03))
+    }
+
+    private struct CreativeRowGroup {
+        let key: String
+        /// "可以清理", or the kind of the items to decide about.
+        let title: String
+        let decided: Bool
+        let items: [ScanItem]
+    }
+
+    /// Cleanable parts first as one group, then items to decide about grouped by kind, then read-only data.
+    private func rowGroups(_ app: CreativeApp, items: [ScanItem]) -> [CreativeRowGroup] {
+        var groups: [CreativeRowGroup] = []
+        let cleanable = items.filter(\.canTrash)
+        if !cleanable.isEmpty { groups.append(CreativeRowGroup(key: "creative:\(app.id)", title: "可以清理", decided: false, items: cleanable)) }
+        var kinds: [String] = []
+        var byKind: [String: [ScanItem]] = [:]
+        for item in items where store.isDecidable(item) {
+            let kind = ItemPresentation.partTitle(for: item).components(separatedBy: " · ").first ?? ""
+            if byKind[kind] == nil { kinds.append(kind) }
+            byKind[kind, default: []].append(item)
+        }
+        groups += kinds.map { CreativeRowGroup(key: "creative:\(app.id):\($0)", title: $0, decided: true, items: byKind[$0]!) }
+        groups += items.filter { !$0.canTrash && !store.isDecidable($0) }
+            .map { CreativeRowGroup(key: $0.url.path, title: "", decided: false, items: [$0]) }
+        return groups
+    }
+
+    /// One row for several parts: "界面缓存、日志、崩溃报告，共 9 处", or "30 天前的对话记录，共 18 处".
+    private func summaryRow(_ app: CreativeApp, group: CreativeRowGroup) -> some View {
+        let items = group.items
+        let key = group.key
         let expanded = store.expandedGroups.contains(key)
         let picked = items.filter { store.selectedCleanupIDs.contains($0.id) }.count
         let kinds = items.sorted { $0.bytes > $1.bytes }.reduce(into: [String]()) { names, item in
@@ -1566,15 +1643,18 @@ struct MainView: View {
                 if expanded { store.expandedGroups.remove(key) } else { store.expandedGroups.insert(key) }
             }
         }
+        let tint = group.decided ? Theme.amber : Theme.cyan
+        let detail = group.decided ? "共 \(items.count) 处，" + (store.decisionNotes[items[0].id] ?? "")
+            : kinds.joined(separator: "、") + "，共 \(items.count) 处"
         return HStack(spacing: 12) {
-            ToolCheckbox(on: picked > 0, partial: picked > 0 && picked < items.count)
+            ToolCheckbox(on: picked > 0, amber: group.decided, partial: picked > 0 && picked < items.count)
             VStack(alignment: .leading, spacing: 3) {
-                Text("可以清理").font(.system(size: 14, weight: .medium))
-                Text(failed ? "有的没清掉，展开看原因" : kinds.joined(separator: "、") + "，共 \(items.count) 处")
+                Text(group.title).font(.system(size: 14, weight: .medium))
+                Text(failed ? "有的没清掉，展开看原因" : detail)
                     .font(.system(size: 12)).foregroundStyle(failed ? Theme.amber : Theme.ink3).lineLimit(1).truncationMode(.tail)
             }
             Spacer(minLength: 10)
-            capsuleTag("可在此清理", tint: Theme.cyan)
+            capsuleTag(group.decided ? "确认后可删" : "可在此清理", tint: tint)
             Text(ByteFormat.string(ScanStore.sum(items)))
                 .font(.system(size: 14, weight: .medium))
                 .monospacedDigit()
@@ -1592,14 +1672,14 @@ struct MainView: View {
         .padding(.leading, 70)
         .padding(.trailing, 18)
         .padding(.vertical, 11)
-        .background(picked > 0 ? Theme.cyan.opacity(0.08) : .clear)
-        .background(HoverFill(tracker: store.hover, id: URL(fileURLWithPath: "/creative/" + app.id), color: Theme.fill(0.05)))
+        .background(picked > 0 ? tint.opacity(0.08) : .clear)
+        .background(HoverFill(tracker: store.hover, id: URL(fileURLWithPath: "/" + key), color: Theme.fill(0.05)))
         .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) { store.setGroupSelected(items, selected: picked < items.count) }
         }
-        .onHover { inside in store.hover.update(URL(fileURLWithPath: "/creative/" + app.id), inside: inside) }
+        .onHover { inside in store.hover.update(URL(fileURLWithPath: "/" + key), inside: inside) }
         .contextMenu { Button(expanded ? "收起" : "展开查看每一处", action: toggleExpanded) }
     }
 

@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 
-struct InstalledApp: Identifiable, Sendable {
+struct InstalledApp: Identifiable, Codable, Sendable {
     let id: URL
     let name: String
     let bundleID: String
@@ -304,6 +304,9 @@ final class UninstallStore: ObservableObject {
     /// Selected app, or nil when the leftovers of removed apps are shown.
     @Published var selectedID: URL?
     @Published var showOrphans = false
+    /// Whether the merged "相关文件" row of the selected app is opened up.
+    @Published var showRelated = false
+    @Published var showToolData = false
     @Published private(set) var traces: [URL: [AppTrace]] = [:]
     @Published var picked: Set<URL> = []
     @Published var orphans: [OrphanGroup]?
@@ -343,49 +346,98 @@ final class UninstallStore: ObservableObject {
         reload()
     }
 
+    /// Shows the last list at once (sizes included), then refreshes it in the background without
+    /// blanking anything: opening the page should not feel like a scan.
     func reload() {
         loaded = true
         isLoading = true
+        if apps.isEmpty { apps = Self.loadCache() }
         let uninstaller = self.uninstaller
         Task.detached(priority: .userInitiated) { [weak self] in
-            let apps = uninstaller.installedApps()
+            let fresh = uninstaller.installedApps()
             await MainActor.run {
                 guard let self else { return }
-                let previous = self.selectedID
-                self.apps = apps
-                self.traces = [:]
-                if !apps.contains(where: { $0.id == previous }) { self.selectedID = nil }
+                // Keep known sizes until they are measured again.
+                let known = Dictionary(self.apps.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+                self.apps = fresh.map { app in
+                    var app = app
+                    app.appBytes = known[app.id]?.appBytes
+                    app.traceBytes = known[app.id]?.traceBytes
+                    app.lastUsed = known[app.id]?.lastUsed
+                    return app
+                }
+                if !fresh.contains(where: { $0.id == self.selectedID }) { self.selectedID = nil }
             }
-            for app in apps {
-                let traces = uninstaller.traces(for: app)
-                let used = AppUninstaller.lastUsed(app.id, traces: traces)
-                await MainActor.run {
-                    guard let self, let index = self.apps.firstIndex(where: { $0.id == app.id }) else { return }
-                    self.traces[app.id] = traces
-                    self.apps[index].appBytes = traces.first { $0.kind == .app }?.bytes
-                    self.apps[index].traceBytes = traces.filter { $0.kind != .app }.reduce(0) { $0 + $1.bytes }
-                    self.apps[index].lastUsed = used
-                    if self.selectedID == app.id { self.pickDefaults(for: app) }
-                    if self.pendingSelection == app.name {
-                        self.pendingSelection = nil
-                        self.select(self.apps[index])
-                    }
+            // A few at a time: sizes fill in quickly without hogging the disk.
+            await withTaskGroup(of: Void.self) { group in
+                var pending = fresh[...]
+                func next() -> InstalledApp? { pending.popFirst() }
+                for _ in 0..<4 {
+                    guard let app = next() else { break }
+                    group.addTask { await self?.measure(app, with: uninstaller) }
+                }
+                while await group.next() != nil {
+                    if let app = next() { group.addTask { await self?.measure(app, with: uninstaller) } }
                 }
             }
-            let orphans = uninstaller.orphans(installed: apps)
+            let orphans = uninstaller.orphans(installed: fresh)
             await MainActor.run {
-                self?.orphans = orphans
-                self?.isLoading = false
+                guard let self else { return }
+                self.orphans = orphans
+                self.isLoading = false
+                Self.saveCache(self.apps)
             }
         }
     }
 
+    nonisolated private func measure(_ app: InstalledApp, with uninstaller: AppUninstaller) async {
+        let traces = uninstaller.traces(for: app)
+        let used = AppUninstaller.lastUsed(app.id, traces: traces)
+        await MainActor.run { self.apply(traces, lastUsed: used, to: app) }
+    }
+
+    private func apply(_ traces: [AppTrace], lastUsed: Date?, to app: InstalledApp) {
+        guard let index = apps.firstIndex(where: { $0.id == app.id }) else { return }
+        let firstLook = self.traces[app.id] == nil
+        self.traces[app.id] = traces
+        apps[index].appBytes = traces.first { $0.kind == .app }?.bytes
+        apps[index].traceBytes = traces.filter { $0.kind != .app }.reduce(0) { $0 + $1.bytes }
+        apps[index].lastUsed = lastUsed
+        if selectedID == app.id, firstLook { pickDefaults(for: app) }
+        if pendingSelection == app.name {
+            pendingSelection = nil
+            select(apps[index])
+        }
+    }
+
+    private static var cacheURL: URL {
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Qingo/results")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory.appending(path: "apps.json")
+    }
+
+    private static func loadCache() -> [InstalledApp] {
+        guard let data = try? Data(contentsOf: cacheURL), let apps = try? JSONDecoder().decode([InstalledApp].self, from: data) else { return [] }
+        return apps.filter { FileManager.default.fileExists(atPath: $0.id.path) }
+    }
+
+    private static func saveCache(_ apps: [InstalledApp]) {
+        if let data = try? JSONEncoder().encode(apps) { try? data.write(to: cacheURL, options: .atomic) }
+    }
+
     func select(_ app: InstalledApp) {
         showOrphans = false
+        showRelated = false
+        showToolData = false
         selectedID = app.id
         report = nil
         message = nil
         pickDefaults(for: app)
+        // Not measured yet in this session: measure this one now rather than wait for its turn.
+        if traces[app.id] == nil {
+            let uninstaller = self.uninstaller
+            Task.detached(priority: .userInitiated) { [weak self] in await self?.measure(app, with: uninstaller) }
+        }
     }
 
     func selectOrphans() {
@@ -398,6 +450,12 @@ final class UninstallStore: ObservableObject {
 
     private func pickDefaults(for app: InstalledApp) {
         picked = Set((traces[app.id] ?? []).filter(AppUninstaller.pickedByDefault).map(\.id))
+    }
+
+    /// Picks or unpicks a set of leftovers at once (the merged "相关文件" row).
+    func toggle(_ group: [AppTrace]) {
+        let ids = Set(group.map(\.id))
+        if ids.isSubset(of: picked) { picked.subtract(ids) } else { picked.formUnion(ids) }
     }
 
     func toggle(_ trace: AppTrace) {

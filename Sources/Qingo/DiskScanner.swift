@@ -124,7 +124,7 @@ struct DiskScanner: Sendable {
                 } else {
                     // Caches and single models found inside are listed on their own; the read-only row counts the rest.
                     let prefix = url.path + "/"
-                    let ownRow = { (found: ScanItem) in found.kind == .cache || policy.modelName(found.url) != nil }
+                    let ownRow = { (found: ScanItem) in found.kind == .cache || policy.isOwnRowInToolData(found.url) }
                     let cached = items.filter { ownRow($0) && $0.url.path.hasPrefix(prefix) }.reduce(Int64(0)) { $0 + $1.bytes }
                     let remaining = max(sum - cached, 0)
                     let tool = CreativeApp.dataOwner(url, home: policy.home) != nil
