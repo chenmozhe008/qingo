@@ -166,7 +166,7 @@ struct TrashConfirmSheet: View {
                 Spacer()
                 Button("返回", action: onCancel).buttonStyle(GhostButtonStyle()).keyboardShortcut(.cancelAction)
                 Button(actionTitle, action: onConfirm)
-                    .buttonStyle(CTAButtonStyle())
+                    .buttonStyle(HeroButtonStyle())
                     .disabled(rows.isEmpty || (warned > 0 && !confirmed))
                     .keyboardShortcut(.defaultAction)
             }
@@ -222,28 +222,6 @@ private struct ToolTopBar<Trailing: View>: View {
     }
 }
 
-private struct ToolFooter<Buttons: View>: View {
-    let title: String
-    let detail: String
-    var warn = false
-    @ViewBuilder let buttons: Buttons
-
-    var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 14, weight: .semibold)).monospacedDigit()
-                Text(detail).font(.system(size: 12.5)).foregroundStyle(warn ? Theme.amber : Theme.ink2)
-            }
-            Spacer(minLength: 8)
-            buttons
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Theme.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-    }
-}
-
 // MARK: Uninstall
 
 struct UninstallView: View {
@@ -274,7 +252,6 @@ struct UninstallView: View {
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 18)
-            footer
         }
         .sheet(isPresented: $store.showConfirm) { confirmSheet }
         .onAppear { store.loadIfNeeded() }
@@ -294,7 +271,7 @@ struct UninstallView: View {
         }
         .frame(maxHeight: .infinity)
         .glass()
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func appRow(_ app: InstalledApp) -> some View {
@@ -373,7 +350,7 @@ struct UninstallView: View {
             }
             .frame(maxHeight: .infinity)
             .glass()
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
     }
 
@@ -392,10 +369,7 @@ struct UninstallView: View {
                         if let version = app.version { Text("版本 \(version)").font(.system(size: 12.5)).foregroundStyle(Theme.ink3) }
                     }
                     Spacer(minLength: 8)
-                    VStack(alignment: .trailing, spacing: 3) {
-                        Text(app.totalBytes.map(ByteFormat.string) ?? "—").font(.system(size: 26, weight: .bold)).monospacedDigit()
-                        if leftovers > 0 { Text("其中残留文件 \(ByteFormat.string(leftovers))").font(.system(size: 12)).foregroundStyle(Theme.ink3) }
-                    }
+                    uninstallButton(app, leftovers: leftovers)
                 }
                 .padding(18)
                 if let traces {
@@ -500,11 +474,21 @@ struct UninstallView: View {
         let groups = store.orphans ?? []
         return ScrollView {
             VStack(alignment: .leading, spacing: 0) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("已删除应用的残留").font(.system(size: 20, weight: .bold))
-                    Text("这些 App 已经删掉了，留下的设置和缓存没用了，可以放心清。")
-                        .font(.system(size: 13)).foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("已删除应用的残留").font(.system(size: 20, weight: .bold))
+                        Text("这些 App 已经删掉了，留下的设置和缓存没用了，可以放心清。")
+                            .font(.system(size: 13)).foregroundStyle(Theme.ink2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 8)
+                    let picked = groups.filter { store.pickedOrphans.contains($0.id) }
+                    if !groups.isEmpty {
+                        Button(picked.isEmpty ? "清理" : "清理 \(ByteFormat.string(picked.reduce(0) { $0 + $1.bytes }))") { store.reviewCleanup() }
+                            .buttonStyle(HeroButtonStyle())
+                            .disabled(picked.isEmpty || store.isWorking)
+                            .opacity(picked.isEmpty ? 0.55 : 1)
+                    }
                 }
                 .padding(18)
                 if store.orphans == nil {
@@ -538,26 +522,17 @@ struct UninstallView: View {
 
     // MARK: Footer & confirm
 
-    @ViewBuilder
-    private var footer: some View {
-        if store.showOrphans {
-            let groups = (store.orphans ?? []).filter { store.pickedOrphans.contains($0.id) }
-            ToolFooter(title: groups.isEmpty ? "选择要删除的残留" : "已选 \(groups.count) 项，共 \(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes }))",
-                       detail: groups.isEmpty ? "点一下列表里的项目就能选中" : "确认时会逐条列出") {
-                Button("移入废纸篓…") { store.reviewCleanup() }
-                    .buttonStyle(ToolbarButtonStyle(prominent: !groups.isEmpty, large: true))
-                    .disabled(groups.isEmpty || store.isWorking)
-            }
-        } else if let app = store.selectedApp {
-            let bytes = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }.reduce(Int64(0)) { $0 + $1.bytes }
-            let running = store.isRunning(app)
-            ToolFooter(title: "卸载 \(app.name)，共 \(ByteFormat.string(bytes))",
-                       detail: running ? "请先退出 \(app.name)" : "App 和勾选的文件会放进废纸篓，随时可以拖回来", warn: running) {
-                Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([app.id]) }.buttonStyle(ToolbarButtonStyle(large: true))
-                Button(store.isWorking ? "正在卸载…" : "卸载…") { store.reviewCleanup() }
-                    .buttonStyle(ToolbarButtonStyle(prominent: true, large: true))
-                    .disabled(store.isWorking || running || store.traces[app.id] == nil)
-            }
+    /// The page's one action, beside the app it removes; size and what is left behind underneath.
+    private func uninstallButton(_ app: InstalledApp, leftovers: Int64) -> some View {
+        let bytes = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }.reduce(Int64(0)) { $0 + $1.bytes }
+        let running = store.isRunning(app)
+        return VStack(alignment: .trailing, spacing: 8) {
+            Button(store.isWorking ? "正在卸载…" : "卸载 \(ByteFormat.string(bytes))") { store.reviewCleanup() }
+                .buttonStyle(HeroButtonStyle())
+                .disabled(store.isWorking || running || store.traces[app.id] == nil)
+                .opacity(running ? 0.55 : 1)
+            Text(running ? "请先退出 \(app.name)" : leftovers > 0 ? "其中残留文件 \(ByteFormat.string(leftovers))" : "放进废纸篓，随时可以拖回来")
+                .font(.system(size: 12)).foregroundStyle(running ? Theme.amber : Theme.ink3)
         }
     }
 
@@ -597,7 +572,7 @@ struct DevProjectsView: View {
                     .buttonStyle(ToolbarButtonStyle(large: true))
                     .disabled(store.isScanning || store.isCleaning)
                 Button { store.scan() } label: { Label(store.result == nil ? "开始扫描" : "重新扫描", systemImage: "arrow.clockwise") }
-                    .buttonStyle(ToolbarButtonStyle(prominent: true, large: true))
+                    .buttonStyle(ToolbarButtonStyle(large: true))
                     .disabled(store.isScanning || store.isCleaning)
             }
             if store.isScanning {
@@ -610,7 +585,6 @@ struct DevProjectsView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let result = store.result {
                 content(result)
-                footer
             } else {
                 VStack(spacing: 12) {
                     IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.blue, size: 56)
@@ -619,7 +593,7 @@ struct DevProjectsView: View {
                         .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                     if let message = store.message { Text(message).font(.system(size: 12.5)).foregroundStyle(Theme.amber) }
                     Button { store.scan() } label: { Label("开始扫描", systemImage: "play.fill") }
-                        .buttonStyle(CTAButtonStyle())
+                        .buttonStyle(HeroButtonStyle())
                         .padding(.top, 14)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -638,13 +612,11 @@ struct DevProjectsView: View {
         return ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(result.projects.isEmpty ? "没有需要清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存可以放心清理")
-                        .font(.system(size: 24, weight: .bold))
-                    Text("都是工程运行、编译时自动生成的缓存，删了下次会重新生成。代码、依赖和设置一个不碰。")
-                        .font(.system(size: 13)).foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
+                PageHeader(symbol: "hammer.fill", tint: Theme.indigo, title: result.projects.isEmpty ? "没有需要清理的构建缓存" : "\(ByteFormat.string(total)) 构建缓存",
+                           subtitle: "工程编译、运行时自动生成的缓存，删了下次会重新生成。代码、依赖和设置一个不碰。") {
+                    devActions
                 }
+                .padding(.bottom, 4)
                 ToolResultBanner(report: store.report, message: store.message, canUndo: !store.undoable.isEmpty,
                                  undo: store.undo, close: { store.report = nil; store.message = nil })
                 ForEach(result.projects) { project in projectCard(project) }
@@ -744,20 +716,22 @@ struct DevProjectsView: View {
         }
     }
 
-    private var footer: some View {
+    private var devActions: some View {
         let items = store.selectedItems
         let all = store.allArtifacts
         let allPicked = !all.isEmpty && items.count == all.count
-        return ToolFooter(title: items.isEmpty ? "选择要清理的项目" : "已选 \(items.count) 项，共 \(ByteFormat.string(ScanStore.sum(items)))",
-                          detail: "都能放心清，放进废纸篓后随时可以恢复。") {
+        return HStack(spacing: 16) {
             if !all.isEmpty {
                 Button(allPicked ? "取消全选" : "全选") { withAnimation(.easeOut(duration: 0.15)) { allPicked ? store.clearSelection() : store.selectAll() } }
-                    .buttonStyle(ToolbarButtonStyle(large: true))
+                    .buttonStyle(.plain)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(Theme.blue)
                     .keyboardShortcut("a", modifiers: .command)
+                Button(store.isCleaning ? "正在清理…" : items.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(items)))") { store.reviewCleanup() }
+                    .buttonStyle(HeroButtonStyle())
+                    .disabled(items.isEmpty || store.isCleaning)
+                    .opacity(items.isEmpty ? 0.55 : 1)
             }
-            Button(store.isCleaning ? "正在清理…" : items.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(items)))…") { store.reviewCleanup() }
-                .buttonStyle(ToolbarButtonStyle(prominent: !items.isEmpty, large: true))
-                .disabled(items.isEmpty || store.isCleaning)
         }
     }
 

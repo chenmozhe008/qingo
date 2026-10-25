@@ -44,7 +44,6 @@ enum Theme {
 
     static let accent = LinearGradient(colors: [blue, cyan], startPoint: .leading, endPoint: .trailing)
     static let warning = LinearGradient(colors: [amber, orange], startPoint: .leading, endPoint: .trailing)
-    static let cta = LinearGradient(colors: [blue, indigo], startPoint: .topLeading, endPoint: .bottomTrailing)
 
     static func symbol(_ category: ItemFilter) -> String {
         switch category {
@@ -119,7 +118,7 @@ struct WindowBlur: NSViewRepresentable {
 extension View {
     /// Liquid Glass on macOS 26+; `highlighted` tints the active card blue. Older systems get a frosted panel.
     @ViewBuilder
-    func glass(radius: CGFloat = 14, highlighted: Bool = false) -> some View {
+    func glass(radius: CGFloat = 20, highlighted: Bool = false) -> some View {
         let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         if #available(macOS 26.0, *) {
             self
@@ -157,19 +156,6 @@ struct GhostButtonStyle: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.fill(configuration.isPressed ? 0.12 : 0.07)))
             .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.line))
             .contentShape(Rectangle())
-    }
-}
-
-struct CTAButtonStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.system(size: 14, weight: .bold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, 22)
-            .padding(.vertical, 11)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.cta))
-            .shadow(color: Theme.indigo.opacity(0.7), radius: 14, y: 8)
-            .opacity(configuration.isPressed ? 0.85 : 1)
     }
 }
 
@@ -341,98 +327,72 @@ struct FlowLayout: Layout {
 }
 
 
-/// The disk as a dial of 60 ticks, each a sixtieth of the disk. Used ticks are coloured by what holds the space,
-/// in the same colours as the category platters below, so the dial reads as "who took my space". The parts this
-/// cleanup frees sit at the end of the used arc, next to the free ticks they will become, and glow.
-struct SpaceDial: View {
-    struct Part {
-        let bytes: Int64
-        let color: Color
-        /// Freed by the cleanup.
-        var glows = false
-    }
-
+/// How much room is left, at a glance: one thick ring like the Activity rings, the coloured arc is what is used
+/// and the gap is what is free. Blue while there is room, orange below 10 GB. "Who took the space" is the
+/// platters' job, so the ring needs no legend (用户选定方案 ①，2026-10-25).
+struct SpaceRing: View {
     let total: Int64
     let free: Int64
-    /// In drawing order after the unattributed "other" space; cleanable parts last.
-    let parts: [Part]
-    /// Free space after cleaning what is selected; nil when nothing is.
-    let after: Int64?
     let low: Bool
 
-    private static let count = 60
+    private var used: Double { total > 0 ? min(max(Double(total - free) / Double(total), 0), 1) : 0 }
+    private var colors: [Color] {
+        low ? [Color(red: 1.0, green: 0.74, blue: 0.30), Color(red: 1.0, green: 0.45, blue: 0.20)]
+            : [Color(red: 0.39, green: 0.82, blue: 1.0), Color(red: 0.04, green: 0.52, blue: 1.0)]
+    }
 
     var body: some View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
-            let length = size * 0.085
-            let width = size * 0.02
-            let spans = layout()
+            let line = size * 0.105
             ZStack {
-                disc.padding(length + size * 0.05)
-                // Free ticks barely there, the space they stand for is empty; the rest of the used space a firm grey.
-                Ticks(count: Self.count, range: spans.used..<Self.count, length: length, width: width).fill(Theme.fill(0.07))
-                Ticks(count: Self.count, range: 0..<spans.other, length: length, width: width).fill(Theme.ink2.opacity(0.62))
-                ForEach(Array(spans.parts.enumerated()), id: \.offset) { _, span in
-                    Ticks(count: Self.count, range: span.range, length: length, width: width)
-                        .fill(span.part.color)
-                        .shadow(color: span.part.glows ? span.part.color.opacity(0.75) : .clear, radius: size * 0.022)
-                }
+                Circle().stroke(colors[1].opacity(0.13), lineWidth: line)
+                Circle()
+                    .trim(from: 0, to: used)
+                    .stroke(AngularGradient(colors: colors, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * used)),
+                            style: StrokeStyle(lineWidth: line, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .shadow(color: colors[1].opacity(0.28), radius: size * 0.03, y: size * 0.01)
                 VStack(spacing: size * 0.012) {
-                    Text("现在可用").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2)
+                    Text("现在可用").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.ink2)
                     Text(ByteFormat.string(free))
-                        .font(.system(size: size * 0.15, weight: .light, design: .rounded))
+                        .font(.system(size: size * 0.16, weight: .light, design: .rounded))
                         .monospacedDigit()
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
                         .foregroundStyle(low ? Theme.amber : Theme.ink)
-                    if let after {
-                        HStack(spacing: 5) {
-                            Text("清理后").foregroundStyle(Theme.ink2)
-                            Text(ByteFormat.string(after)).fontWeight(.semibold).foregroundStyle(Theme.blue)
-                        }
-                        .font(.system(size: 13.5))
-                        .monospacedDigit()
-                    } else if low {
-                        Text("剩余空间较少").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.amber)
-                    }
+                    Text(low ? "剩余空间较少" : "共 \(ByteFormat.string(total))")
+                        .font(.system(size: 13.5, weight: low ? .medium : .regular))
+                        .foregroundStyle(low ? Theme.amber : Theme.ink2)
                 }
-                .padding(.horizontal, length + size * 0.1)
+                .padding(.horizontal, line + size * 0.08)
             }
+            .padding(line / 2)
             .frame(width: size, height: size)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
+}
 
-    private struct Span {
-        let part: Part
-        let range: Range<Int>
-    }
+/// Every page opens the same way: what it is, what happens here, and its one main action on the right
+/// (the overview's "outcome + button beside it", applied to the other pages).
+struct PageHeader<Actions: View>: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let subtitle: String
+    @ViewBuilder let actions: Actions
 
-    /// Each non-empty part gets at least one tick so it can be seen; parts never take more than the used ticks.
-    private func layout() -> (used: Int, other: Int, parts: [Span]) {
-        guard total > 0 else { return (0, 0, []) }
-        let used = min(Int((Double(max(total - free, 0)) / Double(total) * Double(Self.count)).rounded()), Self.count)
-        var ticks = parts.map { $0.bytes > 0 ? max(1, Int((Double($0.bytes) / Double(total) * Double(Self.count)).rounded())) : 0 }
-        while ticks.reduce(0, +) > used, let largest = ticks.indices.max(by: { ticks[$0] < ticks[$1] }), ticks[largest] > 0 {
-            ticks[largest] -= 1
-        }
-        let other = used - ticks.reduce(0, +)
-        var start = other
-        var spans: [Span] = []
-        for (part, count) in zip(parts, ticks) where count > 0 {
-            spans.append(Span(part: part, range: start..<(start + count)))
-            start += count
-        }
-        return (used, other, spans)
-    }
-
-    @ViewBuilder
-    private var disc: some View {
-        if #available(macOS 26.0, *) {
-            Circle().fill(Color.clear).glassEffect(.regular, in: Circle())
-        } else {
-            Circle().fill(Theme.panel)
+    var body: some View {
+        HStack(alignment: .center, spacing: 16) {
+            IconTile(symbol: symbol, tint: tint, size: 46)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title).font(.system(size: 26, weight: .bold))
+                Text(subtitle).font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 16)
+            actions
         }
     }
 }
@@ -453,22 +413,3 @@ struct HeroButtonStyle: ButtonStyle {
     }
 }
 
-/// Radial tick marks around a circle, starting at 12 o'clock.
-struct Ticks: Shape {
-    let count: Int
-    let range: Range<Int>
-    let length: CGFloat
-    let width: CGFloat
-
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        let center = CGPoint(x: rect.midX, y: rect.midY)
-        let radius = min(rect.width, rect.height) / 2
-        for index in range {
-            let angle = Double(index) / Double(count) * 2 * .pi - .pi / 2
-            let tick = Path(roundedRect: CGRect(x: radius - length, y: -width / 2, width: length, height: width), cornerRadius: width / 2)
-            path.addPath(tick, transform: CGAffineTransform(translationX: center.x, y: center.y).rotated(by: angle))
-        }
-        return path
-    }
-}

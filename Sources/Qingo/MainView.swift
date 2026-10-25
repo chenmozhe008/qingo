@@ -75,23 +75,10 @@ struct MainView: View {
                 .font(.system(size: 14))
                 .foregroundStyle(Theme.ink2)
                 .padding(.top, 10)
-            Button { store.scanKnownCaches() } label: {
-                Text("快速扫描")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .frame(width: 132, height: 132)
-                    .background(
-                        Circle().fill(RadialGradient(colors: [Color(red: 0.5, green: 0.69, blue: 1.0), Color(red: 0.23, green: 0.43, blue: 1.0), Color(red: 0.36, green: 0.24, blue: 0.96)],
-                                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: 100))
-                    )
-                    .background(Circle().fill(Theme.blue.opacity(0.12)).padding(-10))
-                    .background(Circle().fill(Theme.blue.opacity(0.06)).padding(-22))
-                    .shadow(color: Theme.blue.opacity(0.8), radius: 26, y: 14)
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .keyboardShortcut(.defaultAction)
-            .padding(.top, 40)
+            Button { store.scanKnownCaches() } label: { Label("快速扫描", systemImage: "bolt.fill") }
+                .buttonStyle(HeroButtonStyle())
+                .keyboardShortcut(.defaultAction)
+                .padding(.top, 34)
             HStack(spacing: 18) {
                 Text("或").foregroundStyle(Theme.ink2)
                 Button("完整扫描") { store.scanLocation(home) }
@@ -177,13 +164,8 @@ struct MainView: View {
             .frame(height: 52)
             .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
             Spacer()
-            Image(systemName: quick ? "bolt.fill" : "folder.fill")
-                .font(.system(size: 40, weight: .medium))
-                .foregroundStyle(Theme.accent)
-                .frame(width: 104, height: 104)
-                .background(Circle().fill(Theme.panel))
-                .overlay(Circle().strokeBorder(Theme.line))
-                .shadow(color: Theme.blue.opacity(0.4), radius: 24)
+            IconTile(symbol: quick ? "bolt.fill" : "internaldrive.fill", tint: Theme.blue, size: 84)
+                .shadow(color: Theme.blue.opacity(0.3), radius: 20, y: 8)
             Text(store.notScannedTitle)
                 .font(.system(size: 24, weight: .bold))
                 .padding(.top, 24)
@@ -191,8 +173,8 @@ struct MainView: View {
                 .font(.system(size: 13.5))
                 .foregroundStyle(Theme.ink2)
                 .padding(.top, 8)
-            Button { store.scan() } label: { Label("开始扫描", systemImage: "play.fill") }
-                .buttonStyle(CTAButtonStyle())
+            Button { store.scan() } label: { Text("开始扫描") }
+                .buttonStyle(HeroButtonStyle())
                 .keyboardShortcut(.defaultAction)
                 .padding(.top, 26)
             Spacer()
@@ -207,24 +189,21 @@ struct MainView: View {
             VStack(spacing: 0) {
                 // Same dial as the overview; a band of lit ticks sweeps round while scanning.
                 ZStack {
+                    // The overview's ring, turning: same thickness and blue, so scanning and result feel like one thing.
                     TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                        let angle = context.date.timeIntervalSinceReferenceDate * 150
+                        let angle = context.date.timeIntervalSinceReferenceDate * 220
                         ZStack {
-                            Ticks(count: 72, range: 0..<72, length: 26, width: 5).fill(Theme.fill(0.1))
-                            Ticks(count: 72, range: 0..<72, length: 26, width: 5)
-                                .fill(AngularGradient(colors: [.clear, .clear, Theme.indigo.opacity(0.6), Theme.blue, Theme.cyan], center: .center))
+                            Circle().stroke(Theme.blue.opacity(0.12), lineWidth: 30)
+                            Circle()
+                                .trim(from: 0, to: 0.32)
+                                .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Color(red: 0.39, green: 0.82, blue: 1.0), Theme.blue],
+                                                        center: .center, startAngle: .degrees(0), endAngle: .degrees(115)),
+                                        style: StrokeStyle(lineWidth: 30, lineCap: .round))
                                 .rotationEffect(.degrees(angle))
-                                .shadow(color: Theme.blue.opacity(0.45), radius: 8)
+                                .shadow(color: Theme.blue.opacity(0.3), radius: 8)
                         }
+                        .padding(15)
                     }
-                    Group {
-                        if #available(macOS 26.0, *) {
-                            Circle().fill(Color.clear).glassEffect(.regular, in: Circle())
-                        } else {
-                            Circle().fill(Theme.panel)
-                        }
-                    }
-                    .padding(44)
                     VStack(spacing: 4) {
                         Text(store.progress.scannedCount.formatted())
                             .font(.system(size: 34, weight: .bold, design: .rounded))
@@ -320,11 +299,11 @@ struct MainView: View {
                     .frame(height: 70)
                     .allowsHitTesting(false)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
             HStack(spacing: 10) {
-                liveTotal("可清理缓存", ByteFormat.string(ScanStore.sum(caches)), Theme.cyan)
-                liveTotal("创作与 AI 工具", ByteFormat.string(ScanStore.sum(creative)), Theme.pink)
-                liveTotal("大文件与工程", store.isQuickScope ? "完整扫描才查" : "\(large.count) 项", Theme.violet)
+                liveTotal(.caches, ByteFormat.string(ScanStore.sum(caches)))
+                liveTotal(.creative, ByteFormat.string(ScanStore.sum(creative)))
+                liveTotal(.large, store.isQuickScope ? "完整扫描才查" : "\(large.count) 项")
             }
         }
     }
@@ -349,16 +328,20 @@ struct MainView: View {
         .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
     }
 
-    private func liveTotal(_ title: String, _ value: String, _ tint: Color) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(title).font(.system(size: 12)).foregroundStyle(Theme.ink2)
-            Text(value).font(.system(size: 19, weight: .bold)).monospacedDigit().foregroundStyle(tint)
-                .contentTransition(.numericText())
+    /// Same tile and colour as the overview platter for that category.
+    private func liveTotal(_ category: ItemFilter, _ value: String) -> some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(category.title).font(.system(size: 12)).foregroundStyle(Theme.ink2)
+                Text(value).font(.system(size: 19, weight: .semibold)).monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            Spacer(minLength: 0)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 10)
-        .glass(radius: 12)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .glass(radius: 18)
     }
 
     // MARK: Sidebar
@@ -650,20 +633,69 @@ struct MainView: View {
             } else if store.filter == .chat {
                 chatView(result)
             } else {
-                VStack(spacing: 14) {
+                VStack(spacing: 16) {
+                    categoryHeader(result)
                     banners
                     listPanel
                 }
-                .padding(.horizontal, 26)
-                .padding(.top, 6)
-                .padding(.bottom, showFooter ? 0 : 22)
+                .padding(.horizontal, 30)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
             }
-            if showFooter { footer }
         }
     }
 
-    /// The overview carries its own main button; category pages have the footer.
-    private var showFooter: Bool { !store.showingOverview && !store.selectableInFilter.isEmpty }
+    /// Caches and large files: what the page holds, and its own clean button (only this page's picks).
+    private func categoryHeader(_ result: ScanResult) -> some View {
+        let category = store.filter
+        let items = store.displayedItems
+        let subtitle: String = {
+            if category == .large {
+                if result.isQuickScan { return "1 GB 以上的大文件、安装包和工程，都是你自己的文件，删不删由你决定。" }
+                return "\(items.count) 个，都是你自己的文件。大文件和安装包删不删由你决定，工程只列不删。"
+            }
+            return items.isEmpty ? "没有需要清理的缓存。" : "\(items.count) 处，下次使用会自动重新生成。正在运行的软件，它的缓存会自动跳过。"
+        }()
+        return PageHeader(symbol: Theme.symbol(category), tint: Theme.color(category), title: category.title, subtitle: subtitle) {
+            cleanActions(scope: category)
+        }
+    }
+
+    /// "全选 / 取消全选" for what is safe, and the capsule clean button for one page's picks.
+    @ViewBuilder
+    private func cleanActions(scope: ItemFilter) -> some View {
+        let picked = store.selectedItems(in: scope)
+        let safe = store.eligibleItems.filter { scope.contains($0) }
+        let allSafe = !safe.isEmpty && safe.allSatisfy { store.selectedCleanupIDs.contains($0.id) }
+        HStack(spacing: 16) {
+            if !safe.isEmpty {
+                Button(allSafe ? "取消全选" : "全选") {
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        if allSafe { store.setGroupSelected(safe, selected: false) } else { store.setGroupSelected(safe, selected: true) }
+                    }
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: 14, weight: .medium))
+                .foregroundStyle(Theme.blue)
+                .keyboardShortcut("a", modifiers: .command)
+            }
+            if !store.selectableInFilter.isEmpty || !picked.isEmpty {
+                Button { store.reviewCleanup(scope: scope) } label: {
+                    if store.isCleaning {
+                        HStack(spacing: 8) {
+                            ProgressView().controlSize(.small).tint(.white)
+                            Text("正在清理 \(store.cleanedCount)/\(store.itemsToClean.count)").monospacedDigit()
+                        }
+                    } else {
+                        Text(picked.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(picked)))")
+                    }
+                }
+                .buttonStyle(HeroButtonStyle())
+                .disabled(picked.isEmpty || store.isCleaning)
+                .opacity(picked.isEmpty ? 0.55 : 1)
+            }
+        }
+    }
 
     private func topBar(_ result: ScanResult) -> some View {
         HStack(spacing: 10) {
@@ -674,7 +706,6 @@ struct MainView: View {
                 .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
                 .keyboardShortcut("[", modifiers: .command)
                 .help("回到总览（⌘[）")
-                Text(store.filter.title).font(.system(size: 17, weight: .bold))
             }
             Text(store.showingOverview ? "\(volumeName(result.root))，\(store.scopeTitle)于\(Self.ago(result.scannedAt))" : "\(Self.ago(result.scannedAt))扫描")
                 .font(.system(size: 12.5))
@@ -703,16 +734,9 @@ struct MainView: View {
             banners.padding(.horizontal, 40)
             Spacer(minLength: 6)
             HStack(alignment: .center, spacing: 48) {
-                VStack(spacing: 10) {
-                    // Free space is read live: results go stale as soon as anything is deleted.
-                    TimelineView(.periodic(from: .now, by: 30)) { _ in spaceDial(result) }
-                        .frame(width: 320, height: 320)
-                    // The coloured ticks are named by the platters below; these two are not.
-                    HStack(spacing: 16) {
-                        legend(Theme.ink2.opacity(0.62), "系统和应用")
-                        legend(Theme.fill(0.16), "可用")
-                    }
-                }
+                // Free space is read live: results go stale as soon as anything is deleted.
+                TimelineView(.periodic(from: .now, by: 30)) { _ in spaceRing(result) }
+                    .frame(width: 320, height: 320)
                 heroCopy
                 Spacer(minLength: 0)
             }
@@ -724,25 +748,10 @@ struct MainView: View {
         }
     }
 
-    private func legend(_ color: Color, _ title: String) -> some View {
-        HStack(spacing: 6) {
-            Capsule().fill(color).frame(width: 10, height: 4)
-            Text(title).font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
-        }
-    }
-
-    private func spaceDial(_ result: ScanResult) -> some View {
+    private func spaceRing(_ result: ScanResult) -> some View {
         let live = volumeCapacity(result.root)
-        let total = live?.total ?? result.volumeTotalBytes ?? 0
         let free = live?.free ?? result.volumeFreeBytes ?? 0
-        let selected = store.selectedCleanupBytes
-        let cleanable = { (category: ItemFilter) in ScanStore.sum(store.items(in: category).filter(\.canTrash)) }
-        return SpaceDial(total: total, free: free, parts: [
-            .init(bytes: ScanStore.sum(store.items(in: .large)), color: Theme.color(.large)),
-            .init(bytes: result.chatApps.reduce(0) { $0 + ($1.bytes ?? 0) }, color: Theme.color(.chat)),
-            .init(bytes: cleanable(.creative), color: Theme.color(.creative), glows: true),
-            .init(bytes: cleanable(.caches), color: Theme.color(.caches), glows: true)
-        ], after: selected > 0 ? free + selected : nil, low: free < Self.lowSpaceBytes)
+        return SpaceRing(total: live?.total ?? result.volumeTotalBytes ?? 0, free: free, low: free < Self.lowSpaceBytes)
     }
 
     private var heroCopy: some View {
@@ -768,7 +777,7 @@ struct MainView: View {
                         if store.isCleaning {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small).tint(.white)
-                                Text("正在清理 \(store.cleanedCount)/\(count)").monospacedDigit()
+                                Text("正在清理 \(store.cleanedCount)/\(store.itemsToClean.count)").monospacedDigit()
                             }
                         } else {
                             Text(selected > 0 ? "清理 \(ByteFormat.string(selected))" : "清理")
@@ -872,7 +881,7 @@ struct MainView: View {
                         Text("快速扫描不查找大文件和工程").font(.system(size: 15, weight: .semibold))
                         Text("完整扫描会检查整个用户目录，大约需要几分钟。").font(.system(size: 13)).foregroundStyle(Theme.ink2)
                         Button { store.scanLocation(home) } label: { Label("开始完整扫描", systemImage: "play.fill") }
-                            .buttonStyle(ToolbarButtonStyle(prominent: true, large: true))
+                            .buttonStyle(HeroButtonStyle())
                             .padding(.top, 4)
                     } else {
                         Image(systemName: "checkmark.circle").font(.system(size: 30)).foregroundStyle(Theme.green)
@@ -903,7 +912,7 @@ struct MainView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .glass()
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func row(_ item: ScanItem, maxBytes: Int64) -> some View {
@@ -1148,12 +1157,10 @@ struct MainView: View {
         ScrollView {
             GlassGroup {
             VStack(alignment: .leading, spacing: 14) {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(cleanable > 0 ? "\(ByteFormat.string(cleanable)) 可以放心清理" : "没有需要清理的").font(.system(size: 24, weight: .bold))
-                    Text(kept > 0 ? "都是会自动重新生成的缓存和日志。另有 \(ByteFormat.string(kept)) 是对话、作品和设置，不会动。"
-                                  : "都是会自动重新生成的缓存和日志。")
-                        .font(.system(size: 13)).foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
+                PageHeader(symbol: Theme.symbol(.creative), tint: Theme.color(.creative), title: ItemFilter.creative.title,
+                           subtitle: (cleanable > 0 ? "\(found.count) 个工具的缓存和日志，下次打开会自动重新生成。" : "现在没有需要清理的。")
+                            + (kept > 0 ? "另有 \(ByteFormat.string(kept)) 是对话、作品和设置，不会动。" : "")) {
+                    cleanActions(scope: .creative)
                 }
                 .padding(.bottom, 4)
                 banners
@@ -1175,8 +1182,9 @@ struct MainView: View {
                 }
                 creativeCoverage
             }
-            .padding(.horizontal, 26)
-            .padding(.vertical, 22)
+            .padding(.horizontal, 30)
+            .padding(.top, 4)
+            .padding(.bottom, 24)
             }
         }
         .onAppear {
@@ -1263,7 +1271,15 @@ struct MainView: View {
         let chats = result.chatApps
         let total = chats.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
         let selected = chats.first { $0.id == store.selectedChatID } ?? chats.max { ($0.bytes ?? 0) < ($1.bytes ?? 0) }
-        return HStack(alignment: .top, spacing: 18) {
+        return VStack(alignment: .leading, spacing: 18) {
+        PageHeader(symbol: Theme.symbol(.chat), tint: Theme.color(.chat), title: ItemFilter.chat.title,
+                   subtitle: "聊天记录只能在微信里清。这里看占用，并告诉你在微信里怎么清。") {
+            if let selected {
+                Button { store.openApp(bundleID: selected.id) } label: { Text("打开\(selected.name)") }
+                    .buttonStyle(HeroButtonStyle())
+            }
+        }
+        HStack(alignment: .top, spacing: 18) {
             VStack(spacing: 14) {
                 ZStack {
                     UsageRing(segments: chats.map { chat in
@@ -1289,8 +1305,10 @@ struct MainView: View {
             }
             .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 26)
-        .padding(.vertical, 22)
+        }
+        .padding(.horizontal, 30)
+        .padding(.top, 4)
+        .padding(.bottom, 24)
     }
 
     private func chatTint(_ id: String) -> Color { id == "com.tencent.xinWeChat" ? Theme.green : Theme.blue }
@@ -1349,12 +1367,8 @@ struct MainView: View {
                 VStack(alignment: .trailing, spacing: 8) {
                     if chat.bytes == nil {
                         Button { store.openFullDiskAccessSettings() } label: { Label("去开启权限", systemImage: "lock.open") }
-                            .buttonStyle(ToolbarButtonStyle(prominent: true, large: true))
+                            .buttonStyle(HeroButtonStyle())
                     }
-                    Button { store.openApp(bundleID: chat.id) } label: {
-                        Label("打开\(chat.name)", systemImage: "arrow.up.forward.app")
-                    }
-                    .buttonStyle(ToolbarButtonStyle(prominent: chat.bytes != nil, large: true))
                 }
             }
             .padding(20)
@@ -1634,52 +1648,6 @@ struct MainView: View {
         }
     }
 
-    private var footer: some View {
-        let allSelected = store.eligibleItems.allSatisfy { store.selectedCleanupIDs.contains($0.id) }
-        let empty = store.selectedCleanupItems.isEmpty
-        let decided = store.selectedDecidedItems.count
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top, spacing: 12) {
-                if store.isCleaning { ProgressView().controlSize(.small) }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(store.isCleaning
-                         ? "正在检查并移入废纸篓 \(store.cleanedCount)/\(store.selectedCleanupItems.count)"
-                         : empty ? "选择要清理的项目" : "已选 \(store.selectedCleanupItems.count) 项，共 \(ByteFormat.string(store.selectedCleanupBytes))")
-                        .font(.system(size: 14, weight: .semibold)).monospacedDigit()
-                    Text(empty ? "点一下列表里的项目就能选中"
-                         : decided > 0 ? "其中 \(decided) 个大文件由你决定，确认时会逐条列出"
-                         : "都能放心清。正在运行的软件，它的缓存会自动跳过。")
-                        .font(.system(size: 12.5))
-                        .foregroundStyle(Theme.ink2)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 0)
-            }
-            HStack(spacing: 8) {
-                // "全选" covers every safe item in every category; large files are picked one by one.
-                if !store.eligibleItems.isEmpty {
-                    Button(allSelected ? "取消全选" : "全选") {
-                        withAnimation(.easeOut(duration: 0.15)) { allSelected ? store.clearAllSafe() : store.selectAllEligible() }
-                    }
-                    .keyboardShortcut("a", modifiers: .command)
-                } else if !empty {
-                    Button("取消选择") { withAnimation(.easeOut(duration: 0.15)) { store.clearCleanupSelection() } }
-                }
-                Spacer(minLength: 8)
-                Button(empty ? "清理" : "清理 \(ByteFormat.string(store.selectedCleanupBytes))…") { store.reviewCleanup() }
-                .buttonStyle(ToolbarButtonStyle(prominent: !empty, large: true))
-                .disabled(empty || store.isCleaning)
-                .opacity(empty ? 0.6 : 1)
-            }
-            .buttonStyle(ToolbarButtonStyle())
-            .disabled(store.isCleaning)
-        }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 14)
-        .background(Theme.panel)
-        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
-    }
-
     private func cleanupReportBanner(_ report: CleanupReport) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 10) {
@@ -1830,8 +1798,8 @@ struct MainView: View {
 
     private var cleanupReviewSheet: some View {
         // Items the user decides about go first, each with what deleting it costs.
-        let decided = store.selectedDecidedItems
-        let items = decided + store.selectedCleanupItems.filter { !store.isDecidable($0) }
+        let decided = store.itemsToClean.filter(store.isDecidable)
+        let items = decided + store.itemsToClean.filter { !store.isDecidable($0) }
         let quit = store.runningOwners
         let listHeight = items.reduce(CGFloat(0)) { $0 + (store.isDecidable($1) ? 72 : 52) }
         return VStack(alignment: .leading, spacing: 16) {
@@ -1842,7 +1810,7 @@ struct MainView: View {
                     .shadow(color: Theme.cyan.opacity(0.5), radius: 10)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("移入废纸篓").font(.system(size: 20, weight: .bold))
-                    Text("共 \(items.count) 项，\(ByteFormat.string(store.selectedCleanupBytes))。放进废纸篓后随时可以恢复。")
+                    Text("共 \(items.count) 项，\(ByteFormat.string(ScanStore.sum(items)))。放进废纸篓后随时可以恢复。")
                         .font(.system(size: 13.5))
                         .foregroundStyle(Theme.ink2)
                 }
@@ -1897,7 +1865,7 @@ struct MainView: View {
                     .buttonStyle(GhostButtonStyle())
                     .keyboardShortcut(.cancelAction)
                 Button("确认移入废纸篓") { store.trashSelectedItems() }
-                    .buttonStyle(CTAButtonStyle())
+                    .buttonStyle(HeroButtonStyle())
                     .disabled(items.isEmpty || (!decided.isEmpty && !store.confirmDecided))
                     .keyboardShortcut(.defaultAction)
             }

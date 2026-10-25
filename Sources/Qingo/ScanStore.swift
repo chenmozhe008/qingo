@@ -115,6 +115,11 @@ final class ScanStore: ObservableObject {
             aboutTab = AboutTab(rawValue: String(about.drop { $0 != "=" }.dropFirst())) ?? .intro
         }
         if arguments.contains("--scan") { scan() }
+        // `--category=大文件与工程` (an ItemFilter raw value): open that category instead of the overview.
+        if let raw = arguments.first(where: { $0.hasPrefix("--category=") }).map({ String($0.dropFirst("--category=".count)) }),
+           let category = ItemFilter(rawValue: raw) {
+            selectCategory(category)
+        }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
         creativeScrollTarget = arguments.first { $0.hasPrefix("--creative-app=") }.map { String($0.dropFirst("--creative-app=".count)) }
         // `--tool=uninstall` / `--tool=dev` (add `--dev-scan` to rescan the dev folder).
@@ -162,11 +167,6 @@ final class ScanStore: ObservableObject {
         shownItems.filter { $0.kind == .cache && $0.canTrash }
     }
 
-    /// Cleanable items in the current category (footer actions work per category).
-    var eligibleInFilter: [ScanItem] {
-        displayedItems.filter { $0.kind == .cache && $0.canTrash }
-    }
-
     func isDecidable(_ item: ScanItem) -> Bool { decisionNotes[item.id] != nil }
 
     /// Caches, plus items the user may delete after confirming. Never picked by "全选".
@@ -204,7 +204,7 @@ final class ScanStore: ObservableObject {
 
     private func measureRunningOwners() {
         var names: [String] = []
-        for item in selectedCleanupItems {
+        for item in itemsToClean {
             if let name = ItemPresentation.runningOwner(of: item), !names.contains(name) { names.append(name) }
         }
         runningOwners = names
@@ -240,11 +240,6 @@ final class ScanStore: ObservableObject {
         selectedCleanupIDs.formUnion(eligibleItems.map(\.id))
     }
 
-    func clearAllSafe() {
-        guard !isCleaning else { return }
-        selectedCleanupIDs.subtract(eligibleItems.map(\.id))
-    }
-
     func setGroupSelected(_ items: [ScanItem], selected: Bool) {
         guard !isCleaning else { return }
         let ids = items.filter(isSelectable).map(\.id)
@@ -256,8 +251,23 @@ final class ScanStore: ObservableObject {
         selectedCleanupIDs.subtract(selectableInFilter.map(\.id))
     }
 
-    func reviewCleanup() {
-        guard !selectedCleanupItems.isEmpty, !isCleaning else { return }
+    /// The page a cleanup was started from; nil from the overview, which cleans everything selected.
+    /// A category page's button only cleans that category (picking a large file must not also clean caches).
+    @Published private(set) var cleanupScope: ItemFilter?
+
+    var itemsToClean: [ScanItem] {
+        guard let scope = cleanupScope else { return selectedCleanupItems }
+        return selectedCleanupItems.filter { scope.contains($0) }
+    }
+
+    func selectedItems(in category: ItemFilter?) -> [ScanItem] {
+        guard let category else { return selectedCleanupItems }
+        return selectedCleanupItems.filter { category.contains($0) }
+    }
+
+    func reviewCleanup(scope: ItemFilter? = nil) {
+        cleanupScope = scope
+        guard !itemsToClean.isEmpty, !isCleaning else { return }
         hoveredID = nil
         confirmDecided = false
         measureRunningOwners()
@@ -547,7 +557,7 @@ final class ScanStore: ObservableObject {
     // MARK: Cleanup
 
     func trashSelectedItems() {
-        let items = selectedCleanupItems
+        let items = itemsToClean
         guard !items.isEmpty, !isCleaning else { return }
         showTrashConfirmation = false
         isCleaning = true
