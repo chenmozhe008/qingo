@@ -1472,7 +1472,7 @@ struct MainView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(app.title).font(.system(size: 15.5, weight: .semibold))
                     Text(items.contains(where: store.isDecidable) ? "下载的模型可以挑着删，删了要重新下载"
-                         : items.contains(where: \.canTrash) || app.cleanHow != nil ? app.hint : "\(app.group.dataNote)只统计、不删除，要清理请在\(app.shortName)里操作")
+                         : items.contains(where: \.canTrash) || app.cleanHow != nil ? app.hint : "\(app.group.dataNote)只统计、不删除")
                         .font(.system(size: 12)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
@@ -1502,8 +1502,8 @@ struct MainView: View {
                 capsuleTag("可在此清理", tint: Theme.cyan)
             } else if store.isDecidable(item) {
                 capsuleTag("确认后可删", tint: Theme.amber)
-            } else if app.isInstalled, !app.bundleID.isEmpty {
-                // Data the tool owns is cleaned inside the tool; open it rather than a Finder window.
+            } else if app.isInstalled, !app.bundleID.isEmpty, app.cleanHow != nil {
+                // Only when the card says how to clean it in the tool; otherwise opening the app is no help.
                 Button { store.openApp(bundleID: app.bundleID) } label: { capsuleTag("在\(app.shortName)里处理", tint: Theme.blue) }
                     .buttonStyle(.plain)
                     .help("打开\(app.shortName)，在软件里清理；本应用不删除此处数据")

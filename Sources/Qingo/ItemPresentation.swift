@@ -68,6 +68,9 @@ enum ItemPresentation {
         if name == "CacheClip" { return "渲染缓存 CacheClip" }
         if let model = policy.modelName(item.url) { return "模型 \(model)" }
         if !item.canTrash { return "本地数据" }
+        if ["logs", "Logs", "log"].contains(name) || item.url.path.contains("/Library/Logs/") { return "日志" }
+        if ["Crashpad", "crashpad"].contains(name) { return "崩溃报告" }
+        if name == "cli-connector-cache" { return "连接器下载缓存" }
         if name.hasPrefix("Disk Cache") { return "磁盘缓存" }
         if name.hasPrefix("Media Cache") { return "媒体缓存" }
         if name == "Peak Files" { return "音频峰值文件" }
@@ -75,6 +78,10 @@ enum ItemPresentation {
         if name == "codex-runtimes" { return "运行时缓存" }
         if ["Code Cache", "GPUCache", "CachedData", "CachedExtensionVSIXs"].contains(name) || name.hasSuffix("ShaderCache") || name.hasPrefix("Dawn") {
             return "界面缓存 · \(name)"
+        }
+        // An embedded browser's plain "Cache" deeper in the tool's data (e.g. a webview partition).
+        if name == "Cache", item.url.path.contains("/Partitions/") || item.url.path.contains("/session/") {
+            return "界面缓存 · \(item.url.deletingLastPathComponent().lastPathComponent)"
         }
         return "缓存"
     }

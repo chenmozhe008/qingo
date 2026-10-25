@@ -83,4 +83,32 @@ struct ToolSafetyTests {
         #expect(result.totalBytes == 0)
         #expect(try Data(contentsOf: actual.appending(path: "conversation")) == Data([1, 2, 3]))
     }
+
+    @Test func embeddedBrowserCachesLogsAndCrashReportsAreCleanableDataStays() throws {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let root = home.appending(path: ".workbuddy")
+        let session = root.appending(path: "app/session")
+        let cleanable = [session.appending(path: "Code Cache"), session.appending(path: "Partitions/preview/Cache"),
+                         root.appending(path: "logs"), root.appending(path: "app/Crashpad"),
+                         root.appending(path: "binaries/node/cli-connector-cache"), home.appending(path: "Library/Logs/WorkBuddy")]
+        let kept = [root.appending(path: "plugins/cache"), root.appending(path: "projects"), session.appending(path: "Local Storage"),
+                    root.appending(path: "projects/demo/Cache"), root.appending(path: "projects/demo/logs")]
+        for folder in cleanable + kept {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try writeSparse(folder.appending(path: "data"), bytes: 2_000_000)
+        }
+        try Data("{}".utf8).write(to: session.appending(path: "Preferences"))
+        let result = try DiskScanner(policy: SafetyPolicy(home: home)).scanKnownCaches()
+        for folder in cleanable {
+            let item = result.items.first { $0.url.path == CanonicalPath.url(folder).path }
+            #expect(item.map { $0.canTrash && CreativeApp.of($0) == .workbuddy } == true, "\(folder.path) should be cleanable")
+        }
+        for folder in kept {
+            #expect(!result.items.contains { $0.canTrash && $0.url.path == CanonicalPath.url(folder).path }, "\(folder.path) must stay")
+        }
+        // Everything else is one read-only row.
+        let data = try #require(result.items.first { $0.url.path == CanonicalPath.url(root).path })
+        #expect(!data.canTrash && data.bytes >= 10_000_000 && data.bytes < 10_001_000)
+    }
 }

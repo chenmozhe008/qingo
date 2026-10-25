@@ -75,7 +75,12 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     }
 
     var dataDescription: String {
-        "\(title) 的\(group.dataNote)。这里只统计占用，不提供删除，要清理请在\(shortName)里操作。"
+        "\(title) 的\(group.dataNote)。这里只统计占用，不提供删除。" + (cleanHow.map { "\($0)。" } ?? "")
+    }
+
+    /// How to slim down a VS Code-style editor: extensions are the big part and are removed in the editor.
+    static func editorHow(_ name: String) -> String {
+        "缓存可以在这里清理；不用的扩展在\(name)的「扩展」面板里卸载"
     }
 
     // MARK: Catalog
@@ -150,19 +155,23 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static let chatbox = CreativeApp("chatbox", "Chatbox", .aiChat, apps: ["xyz.chatboxapp.app", "Chatbox"], folders: ["xyz.chatboxapp.app", "Chatbox"])
 
     // AI Coding 与智能体
-    static let cursor = CreativeApp("cursor", "Cursor", .aiCode, apps: ["Cursor"], folders: ["Cursor"], roots: [".cursor"])
-    static let windsurf = CreativeApp("windsurf", "Windsurf", .aiCode, apps: ["Windsurf"], folders: ["Windsurf"], roots: [".windsurf", ".codeium"])
-    static let trae = CreativeApp("trae", "Trae", .aiCode, apps: ["Trae"], folders: ["Trae", "Trae CN"], roots: [".trae", ".trae-cn"])
-    static let qoder = CreativeApp("qoder", "Qoder", .aiCode, apps: ["Qoder"], folders: ["Qoder"], roots: [".qoder"])
+    static let cursor = CreativeApp("cursor", "Cursor", .aiCode, apps: ["Cursor"], folders: ["Cursor"], roots: [".cursor"], cleanHow: editorHow("Cursor"))
+    static let windsurf = CreativeApp("windsurf", "Windsurf", .aiCode, apps: ["Windsurf"], folders: ["Windsurf"], roots: [".windsurf", ".codeium"],
+                                      cleanHow: editorHow("Windsurf"))
+    static let trae = CreativeApp("trae", "Trae", .aiCode, apps: ["Trae"], folders: ["Trae", "Trae CN"], roots: [".trae", ".trae-cn"], cleanHow: editorHow("Trae"))
+    static let qoder = CreativeApp("qoder", "Qoder", .aiCode, apps: ["Qoder"], folders: ["Qoder"], roots: [".qoder"], cleanHow: editorHow("Qoder"))
     static let codebuddy = CreativeApp("codebuddy", "CodeBuddy", .aiCode, apps: ["CodeBuddy"], folders: ["CodeBuddy", "CodeBuddy CN", "CodeBuddyExtension"], roots: [".codebuddy"])
     static let workbuddy = CreativeApp("workbuddy", "WorkBuddy", .aiCode, apps: ["com.tencent.workbuddy.mac", "com.workbuddy.workbuddy", "WorkBuddy"],
-                                       folders: ["WorkBuddy", "com.tencent.workbuddy.mac", "com.workbuddy.workbuddy"], roots: [".workbuddy"])
-    static let kiro = CreativeApp("kiro", "Kiro", .aiCode, apps: ["Kiro"], folders: ["Kiro"], roots: [".kiro"])
-    static let vscode = CreativeApp("vscode", "VS Code", .aiCode, apps: ["com.microsoft.VSCode"], folders: ["Code", "com.microsoft.VSCode"], roots: [".vscode"])
+                                       folders: ["WorkBuddy", "com.tencent.workbuddy.mac", "com.workbuddy.workbuddy"], roots: [".workbuddy"],
+                                       caches: [".workbuddy/binaries/node/cli-connector-cache"])
+    static let kiro = CreativeApp("kiro", "Kiro", .aiCode, apps: ["Kiro"], folders: ["Kiro"], roots: [".kiro"], cleanHow: editorHow("Kiro"))
+    static let vscode = CreativeApp("vscode", "VS Code", .aiCode, apps: ["com.microsoft.VSCode"], folders: ["Code", "com.microsoft.VSCode"], roots: [".vscode"],
+                                    cleanHow: editorHow(" VS Code "))
     static let zed = CreativeApp("zed", "Zed", .aiCode, apps: ["dev.zed.Zed"], folders: ["Zed", "dev.zed.Zed"])
     static let lingma = CreativeApp("lingma", "通义灵码", .aiCode, short: "灵码", roots: [".lingma"])
     static let comate = CreativeApp("comate", "文心快码", .aiCode, short: "Comate", roots: [".comate"])
     static let claudeCode = CreativeApp("claude-code", "Claude Code", .aiCode, folders: ["claude-cli-nodejs"], roots: [".claude"],
+                                         cleanHow: "对话记录在 ~/.claude/projects；把 ~/.claude/settings.json 里的 cleanupPeriodDays 调小，Claude Code 会自动删掉更早的对话",
                                          iconApp: "com.anthropic.claudefordesktop")
     static let codex = CreativeApp("codex", "Codex", .aiCode, apps: ["com.openai.codex"], folders: ["Codex", "com.openai.codex"], caches: [".cache/codex-runtimes"])
     static let geminiCLI = CreativeApp("gemini-cli", "Gemini CLI", .aiCode, roots: [".gemini"])
@@ -242,10 +251,11 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         for app in allCases {
             for root in app.roots + app.caches where relativePath == root || relativePath.hasPrefix(root + "/") { return (app, false) }
         }
-        for base in ["Library/Application Support/", "Library/Caches/"] where relativePath.hasPrefix(base) {
+        // ~/Library/Logs/<tool> is regenerable like Caches, not the tool's data.
+        for base in ["Library/Application Support/", "Library/Caches/", "Library/Logs/"] where relativePath.hasPrefix(base) {
             let parts = relativePath.dropFirst(base.count).split(separator: "/").map(String.init)
             guard let first = parts.first else { continue }
-            let inCaches = base == "Library/Caches/"
+            let inCaches = base != "Library/Application Support/"
             if first == "Adobe", parts.count > 1, parts[1] == "Common" { return inCaches ? nil : (adobeMedia, false) }
             if vendorFolders.contains(first) { return parts.count > 1 ? vendorChild(parts[1]).map { ($0, inCaches) } : nil }
             return folderOwners[first.lowercased()].map { ($0, inCaches) }
@@ -276,22 +286,52 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         let quit = "清理前请先退出 \(app.shortName)。"
         if app.caches.contains(relative) { return "\(app.title) 的缓存，下次使用时会重新生成。\(quit)" }
         let parts = relative.split(separator: "/").map(String.init)
-        // ~/Library/Caches/<tool> or ~/Library/Caches/Adobe/<tool>.
+        // ~/Library/Caches/<tool>, ~/Library/Logs/<tool> (or under Adobe / Blackmagic Design).
         if match.inCaches, parts.count >= 3, parts.count == (vendorFolders.contains(parts[2]) ? 4 : 3) {
+            if parts[1] == "Logs" { return "\(app.title) 的日志，删了不影响使用。" }
             return "\(app.title) 的缓存，下次打开时会重新生成。\(quit)"
         }
+        guard !match.inCaches, let name = parts.last else { return nil }
         // ~/Library/Application Support/<tool>/<engine cache>.
-        if !match.inCaches, parts.count == 4, parts[0] == "Library", parts[1] == "Application Support",
-           !vendorFolders.contains(parts[2]), engineCaches.contains(parts[3]) {
+        if parts.count == 4, parts[0] == "Library", parts[1] == "Application Support",
+           !vendorFolders.contains(parts[2]), engineCaches.contains(name) {
             return "\(app.title) 的界面缓存，下次打开时会重新生成。\(quit)"
         }
+        let parent = url.deletingLastPathComponent()
+        // Deeper, only inside an embedded browser profile (Electron keeps it in ~/.<tool>/app/session,
+        // Partitions/<webview>…). The profile is what proves the folder is the engine's cache.
+        if engineCaches.contains(name), isBrowserProfile(parent) {
+            return "\(app.title) 的界面缓存，下次打开时会重新生成。\(quit)"
+        }
+        // Crash reports, anywhere in the tool's data.
+        if ["Crashpad", "crashpad"].contains(name) {
+            return "\(app.title) 的崩溃报告，删了不影响使用。"
+        }
+        // The tool's own log folder, directly in its top folder.
+        if ["logs", "Logs", "log"].contains(name), isTopFolder(String(relative.dropLast(name.count + 1)), of: app) {
+            return "\(app.title) 的日志，删了不影响使用。\(quit)"
+        }
         return nil
+    }
+
+    /// A Chromium / Electron profile folder: it has a Preferences or Local State file, or sits in Partitions.
+    private static func isBrowserProfile(_ url: URL) -> Bool {
+        url.deletingLastPathComponent().lastPathComponent == "Partitions"
+            || ["Preferences", "Local State"].contains { FileManager.default.fileExists(atPath: url.appending(path: $0).path) }
+    }
+
+    /// The tool's root folder: one of its `roots`, or its folder under Application Support (or a vendor folder there).
+    private static func isTopFolder(_ relative: String, of app: CreativeApp) -> Bool {
+        if app.roots.contains(relative) { return true }
+        let parts = relative.split(separator: "/").map(String.init)
+        guard parts.count >= 3, parts[0] == "Library", parts[1] == "Application Support" else { return false }
+        return parts.count == (vendorFolders.contains(parts[2]) ? 4 : 3)
     }
 
     /// Existing top-level folders the quick scan should walk for recognized tools.
     static func dataLocations(home: URL) -> [URL] {
         var candidates: [URL] = allCases.flatMap { ($0.roots + $0.caches).map { home.appending(path: $0) } }
-        for base in ["Library/Application Support", "Library/Caches"] {
+        for base in ["Library/Application Support", "Library/Caches", "Library/Logs"] {
             let root = home.appending(path: base)
             let children = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
             for child in children {
