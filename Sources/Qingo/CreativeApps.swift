@@ -67,6 +67,11 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         self.iconApp = iconApp
     }
 
+    /// Products of one maker shown as one card ("Adobe"), instead of a card per app with a few MB each.
+    var family: String? {
+        ["ae", "premiere", "ame", "audition", "adobe-common", "ps", "ai", "lr"].contains(id) ? "Adobe" : nil
+    }
+
     static func == (lhs: Self, rhs: Self) -> Bool { lhs.id == rhs.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 

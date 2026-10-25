@@ -3,6 +3,7 @@ import Darwin
 import Foundation
 
 struct InstalledApp: Identifiable, Codable, Sendable {
+    /// The .app, or for a suite the folder holding it (/Applications/DaVinci Resolve), which goes as a whole.
     let id: URL
     let name: String
     let bundleID: String
@@ -10,8 +11,14 @@ struct InstalledApp: Identifiable, Codable, Sendable {
     var appBytes: Int64?
     var traceBytes: Int64?
     var lastUsed: Date?
+    /// For a suite: its main app (name, icon, last use) and the bundle ids of every app in the folder.
+    var mainApp: URL?
+    var memberIDs: [String]?
 
     var totalBytes: Int64? { appBytes.map { $0 + (traceBytes ?? 0) } }
+    /// The .app to read the icon and last use from.
+    var appURL: URL { mainApp ?? id }
+    var bundleIDs: [String] { memberIDs ?? [bundleID] }
 }
 
 /// Where an app left something. Each kind is one row group on the uninstall page.
@@ -61,28 +68,44 @@ struct AppUninstaller: Sendable {
 
     func installedApps() -> [InstalledApp] {
         let roots = [URL(fileURLWithPath: "/Applications"), policy.home.appending(path: "Applications")]
-        var bundles: [URL] = []
+        var apps: [InstalledApp] = []
         for root in roots {
             for child in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
                 if child.pathExtension == "app" {
-                    bundles.append(child)
+                    if let app = single(child) { apps.append(app) }
                 } else if (try? child.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])).map({ $0.isDirectory == true && $0.isSymbolicLink != true }) == true {
-                    // One level of folders, e.g. /Applications/Adobe Photoshop 2026/Adobe Photoshop 2026.app.
-                    bundles += ((try? FileManager.default.contentsOfDirectory(at: child, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "app" }
+                    // A folder of apps (/Applications/DaVinci Resolve: the editor, its uninstaller, utilities) is one
+                    // product: listed once, removed as a whole folder.
+                    let bundles = ((try? FileManager.default.contentsOfDirectory(at: child, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "app" }
+                    if bundles.count == 1, let app = single(bundles[0]) {
+                        apps.append(app)
+                    } else if let suite = suite(child, bundles: bundles) {
+                        apps.append(suite)
+                    }
                 }
             }
         }
-        let own = Bundle.main.bundleIdentifier
-        var seen: Set<String> = []
-        return bundles.compactMap { url -> InstalledApp? in
-            guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier,
-                  !id.hasPrefix("com.apple."), id != own, !seen.contains(url.path) else { return nil }
-            seen.insert(url.path)
-            let info = bundle.infoDictionary ?? [:]
-            let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
-            return InstalledApp(id: url, name: name, bundleID: id, version: info["CFBundleShortVersionString"] as? String)
+        return apps.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    private func single(_ url: URL) -> InstalledApp? {
+        guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple."), id != Bundle.main.bundleIdentifier else { return nil }
+        let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
+        return InstalledApp(id: url, name: name, bundleID: id, version: bundle.infoDictionary?["CFBundleShortVersionString"] as? String)
+    }
+
+    private func suite(_ folder: URL, bundles: [URL]) -> InstalledApp? {
+        let members = bundles.compactMap { url -> (URL, Bundle, String)? in
+            guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple.") else { return nil }
+            return (url, bundle, id)
         }
-        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        // The main app is the one named like the folder, else the largest that is not an uninstaller.
+        let name = folder.lastPathComponent
+        let candidates = members.filter { !$0.0.lastPathComponent.lowercased().contains("uninstall") }
+        guard let main = candidates.first(where: { $0.0.deletingPathExtension().lastPathComponent == name })
+                ?? candidates.max(by: { Self.size(of: $0.0) < Self.size(of: $1.0) }) ?? members.first else { return nil }
+        return InstalledApp(id: folder, name: name, bundleID: main.2, version: main.1.infoDictionary?["CFBundleShortVersionString"] as? String,
+                            mainApp: main.0, memberIDs: members.map(\.2))
     }
 
     /// Spotlight's last-used date when it has one (often it does not), or the newest change the app made
@@ -103,22 +126,24 @@ struct AppUninstaller: Sendable {
     /// Everything to move when uninstalling: the bundle first, then ~/Library leftovers.
     func traces(for app: InstalledApp) -> [AppTrace] {
         var found: [(URL, TraceKind)] = [(app.id, .app)]
-        let id = app.bundleID
+        let ids = app.bundleIDs
         // Executable names are skipped: every Electron app's is "Electron", and its folders are shared.
         let generic: Set<String> = ["electron", "chromium", "helper", "app", "application", "launcher", "updater"]
-        let names = Set([id, app.name, Bundle(url: app.id)?.infoDictionary?["CFBundleName"] as? String].compactMap { $0 }
+        let names = Set(ids + [app.name, Bundle(url: app.appURL)?.infoDictionary?["CFBundleName"] as? String].compactMap { $0 }
             .filter { $0.count > 2 && !generic.contains($0.lowercased()) })
-        let tool = CreativeApp.allCases.first { $0.isInstalled && $0.bundleID == id }
+        let tool = CreativeApp.allCases.first { $0.isInstalled && ids.contains($0.bundleID) }
         for name in names {
             let support = library.appending(path: "Application Support/\(name)")
             found.append((support, tool == nil ? .support : .toolData))
             found.append((library.appending(path: "Caches/\(name)"), .caches))
             found.append((library.appending(path: "Logs/\(name)"), .logs))
         }
-        found += namespaced(in: "Preferences", id: id, suffix: ".plist").map { ($0, .preferences) }
-        found.append((library.appending(path: "Saved Application State/\(id).savedState"), .preferences))
-        found += [library.appending(path: "HTTPStorages/\(id)"), library.appending(path: "HTTPStorages/\(id).binarycookies"),
-                  library.appending(path: "WebKit/\(id)"), library.appending(path: "Cookies/\(id).binarycookies")].map { ($0, .web) }
+        for id in ids {
+            found += namespaced(in: "Preferences", id: id, suffix: ".plist").map { ($0, .preferences) }
+            found.append((library.appending(path: "Saved Application State/\(id).savedState"), .preferences))
+            found += [library.appending(path: "HTTPStorages/\(id)"), library.appending(path: "HTTPStorages/\(id).binarycookies"),
+                      library.appending(path: "WebKit/\(id)"), library.appending(path: "Cookies/\(id).binarycookies")].map { ($0, .web) }
+        }
         found += launchAgents(for: app).map { ($0, .background) }
         // A recognized tool's own data roots (conversations, models…): listed, never picked by default.
         if let tool {
@@ -134,7 +159,7 @@ struct AppUninstaller: Sendable {
 
     /// Whether the app keeps a sandbox container. Only checks existence; reading it would ask the user for permission.
     func hasContainer(_ app: InstalledApp) -> Bool {
-        FileManager.default.fileExists(atPath: library.appending(path: "Containers/\(app.bundleID)").path)
+        app.bundleIDs.contains { FileManager.default.fileExists(atPath: library.appending(path: "Containers/\($0)").path) }
     }
 
     /// Uninstalling means not wanting the app any more: everything it left goes, its own data included
@@ -152,7 +177,7 @@ struct AppUninstaller: Sendable {
         let files = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil)) ?? []
         return files.filter { file in
             guard file.pathExtension == "plist" else { return false }
-            if file.lastPathComponent.hasPrefix(app.bundleID) { return true }
+            if app.bundleIDs.contains(where: { file.lastPathComponent.hasPrefix($0) }) { return true }
             // Agents named after the vendor still point into the bundle.
             guard let plist = NSDictionary(contentsOf: file) else { return false }
             let program = (plist["Program"] as? String) ?? ((plist["ProgramArguments"] as? [String])?.first ?? "")
@@ -338,7 +363,7 @@ final class UninstallStore: ObservableObject {
     var selectedApp: InstalledApp? { apps.first { $0.id == selectedID } }
 
     func isRunning(_ app: InstalledApp) -> Bool {
-        !NSRunningApplication.runningApplications(withBundleIdentifier: app.bundleID).isEmpty
+        app.bundleIDs.contains { !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty }
     }
 
     /// First visit: list apps right away, then fill in sizes, last-used dates and leftovers in the background.
@@ -395,7 +420,7 @@ final class UninstallStore: ObservableObject {
 
     nonisolated private func measure(_ app: InstalledApp, with uninstaller: AppUninstaller) async {
         let traces = uninstaller.traces(for: app)
-        let used = AppUninstaller.lastUsed(app.id, traces: traces)
+        let used = AppUninstaller.lastUsed(app.appURL, traces: traces)
         await MainActor.run { self.apply(traces, lastUsed: used, to: app) }
     }
 

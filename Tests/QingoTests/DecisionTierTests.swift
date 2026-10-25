@@ -27,6 +27,7 @@ struct DecisionTierTests {
         try writeSparse(installer, bytes: 150_000_000)
 
         let store = ScanStore()
+        store.minShownBytes = 0
         store.result = try DiskScanner(policy: SafetyPolicy(home: home)).scan(home)
         // Tests share one defaults domain; never inherit another test's last category.
         store.filter = .caches
@@ -145,6 +146,7 @@ struct DecisionTierTests {
         }
 
         let store = ScanStore()
+        store.minShownBytes = 0
         store.setRoot(CanonicalPath.url(home))
         store.result = try DiskScanner(policy: SafetyPolicy(home: home)).scan(home)
         store.filter = .large

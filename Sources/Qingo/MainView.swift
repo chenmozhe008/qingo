@@ -1170,6 +1170,7 @@ struct MainView: View {
         }
         let cleanable = ScanStore.sum(cleanableItems)
         let kept = ScanStore.sum(items.filter { !$0.canTrash })
+        let cards = creativeCards(cleanableItems)
         return ScrollViewReader { proxy in
         ScrollView {
             GlassGroup {
@@ -1184,16 +1185,16 @@ struct MainView: View {
                 .padding(.bottom, 4)
                 banners
                 ForEach(CreativeApp.Group.allCases, id: \.self) { group in
-                    let apps = found.filter { $0.group == group }
-                    if !apps.isEmpty {
+                    let section = cards.filter { $0.group == group }
+                    if !section.isEmpty {
                         HStack(alignment: .firstTextBaseline) {
                             Text(group.rawValue).font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink2)
                             Spacer()
-                            Text(ByteFormat.string(ScanStore.sum(cleanableItems.filter { item in apps.contains { CreativeApp.of(item) == $0 } })))
+                            Text(ByteFormat.string(ScanStore.sum(section.flatMap(\.items))))
                                 .font(.system(size: 12.5)).monospacedDigit().foregroundStyle(Theme.ink3)
                         }
                         .padding(.top, 6)
-                        ForEach(apps) { app in creativeGroup(app, items: cleanableItems.filter { CreativeApp.of($0) == app }).id(app.id) }
+                        ForEach(section, id: \.key) { card in creativeGroup(card).id(card.key) }
                     }
                 }
                 if !quiet.isEmpty {
@@ -1458,9 +1459,43 @@ struct MainView: View {
         }
     }
 
+    private struct CreativeCard {
+        let key: String
+        let title: String
+        /// Whose icon the card shows: the member with the most to clean.
+        let app: CreativeApp
+        let group: CreativeApp.Group
+        let items: [ScanItem]
+        /// A family card (Adobe) names each row after its app.
+        let isFamily: Bool
+    }
+
+    /// One card per tool, or per maker for families (Adobe), largest first within each section.
+    private func creativeCards(_ items: [ScanItem]) -> [CreativeCard] {
+        var order: [String] = []
+        var byKey: [String: [ScanItem]] = [:]
+        for item in items {
+            guard let app = CreativeApp.of(item) else { continue }
+            let key = app.family ?? app.id
+            if byKey[key] == nil { order.append(key) }
+            byKey[key, default: []].append(item)
+        }
+        return order.compactMap { key -> CreativeCard? in
+            guard let members = byKey[key] else { return nil }
+            let owners = Dictionary(grouping: members) { CreativeApp.of($0)! }
+            guard let lead = owners.max(by: { ScanStore.sum($0.value) < ScanStore.sum($1.value) })?.key else { return nil }
+            let family = lead.family != nil
+            return CreativeCard(key: key, title: lead.family ?? lead.title, app: lead, group: lead.group,
+                                items: members.sorted { $0.bytes > $1.bytes }, isFamily: family)
+        }
+        .sorted { ScanStore.sum($0.items) > ScanStore.sum($1.items) }
+    }
+
     /// A tool's card: its cleanable parts, several of them as one row with details on demand.
-    private func creativeGroup(_ app: CreativeApp, items: [ScanItem]) -> some View {
-        let key = "creative:\(app.id)"
+    private func creativeGroup(_ card: CreativeCard) -> some View {
+        let key = "creative:\(card.key)"
+        let app = card.app
+        let items = card.items
         return VStack(spacing: 0) {
             HStack(spacing: 12) {
                 if let icon = ItemPresentation.appIcon(bundleID: app.bundleID) {
@@ -1468,7 +1503,7 @@ struct MainView: View {
                 } else {
                     IconTile(symbol: app.group.symbol, tint: groupTint(app.group), size: 40)
                 }
-                Text(app.title).font(.system(size: 15.5, weight: .semibold))
+                Text(card.title).font(.system(size: 15.5, weight: .semibold))
                 Spacer(minLength: 8)
                 Text(ByteFormat.string(ScanStore.sum(items))).font(.system(size: 19, weight: .bold)).monospacedDigit()
             }
@@ -1477,22 +1512,25 @@ struct MainView: View {
             if items.count > 1 {
                 summaryRow(key: key, items: items)
                 if store.expandedGroups.contains(key) {
-                    ForEach(items) { item in creativeRow(item).padding(.leading, 30) }
+                    ForEach(items) { item in creativeRow(item, family: card.isFamily).padding(.leading, 30) }
                 }
             } else {
-                ForEach(items) { item in creativeRow(item) }
+                ForEach(items) { item in creativeRow(item, family: card.isFamily) }
             }
         }
         .glass()
     }
 
-    private func creativeRow(_ item: ScanItem) -> some View {
+    private func creativeRow(_ item: ScanItem, family: Bool = false) -> some View {
         let picked = store.selectedCleanupIDs.contains(item.id)
         let failure = store.failureReasons[item.id]
+        let part = ItemPresentation.partTitle(for: item)
+        // In the Adobe card, "日志" alone would not say whose.
+        let title = family ? "\(CreativeApp.of(item)?.shortName ?? "") \(part)" : part
         return HStack(spacing: 12) {
             checkbox(item)
             VStack(alignment: .leading, spacing: 3) {
-                Text(ItemPresentation.partTitle(for: item)).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
                 Text(failure.map { "没清掉：\($0)" } ?? shortPath(item.url))
                     .font(.system(size: 12)).foregroundStyle(failure == nil ? Theme.ink3 : Theme.amber).lineLimit(1).truncationMode(.middle)
             }

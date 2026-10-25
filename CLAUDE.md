@@ -98,6 +98,8 @@
 - Codex 的对话和生成的图片不显示（用户定：对话记录不算可放心删）；`~/.codex` 整个保持保护
 - 卸载 App 时连它的工具数据（对话、模型、设置）一起删，默认全选；「已删除应用的残留」规则已经很严，默认全选
 - 正在运行的软件，它的缓存清理时自动跳过并说明，不要求用户先退出
+- **不到 1 MB 的缓存不列也不清**（`ScanStore.minShownBytes`，用户嫌 279 KB 的 AE 日志单独占一张卡）；测试里的小样本要先设 `store.minShownBytes = 0`
+- 同一家的软件合成一张卡：`CreativeApp.family`（目前 Adobe 全家），卡里每行带 App 简称；卡片按可清理大小从大到小排
 
 ## 清理三档（2026-10-24 定，已被上方最高原则取代：第二档不再出现在界面上，代码里的 `decisionNote` 只剩 TrashService 兜底和卸载残留用）
 
@@ -121,7 +123,7 @@
 左栏「扫描位置」下方「工具」分组两项（图标和分类一样用彩色 `IconTile`：卸载=橙色垃圾桶，开发=靛蓝 </>），各自独立页面和扫描，不进总览 3×2 卡片、不动分类（`ScanStore.tool`，非 nil 时右侧显示工具页；点位置/分类/总览回到扫描结果）。
 
 **卸载应用**（`AppUninstaller.swift`）
-- 列 /Applications、~/Applications（含下一层子文件夹）里的 App；排除 `com.apple.*`、小清自己。左列表按大小 / 按多久没用（Spotlight `kMDItemLastUsedDate`），搜索；右侧是选中 App 的全部痕迹
+- 列 /Applications、~/Applications（含下一层子文件夹）里的 App；**一个子文件夹里有多个 App 的算一个软件**（如 /Applications/DaVinci Resolve 里主程序、卸载程序、工具共 5 个，用户嫌拆开列），用主程序的名字和图标，卸载时整个文件夹进废纸篓，残留按所有成员的 bundle id 找（`InstalledApp.mainApp` / `memberIDs`）；排除 `com.apple.*`、小清自己。左列表按大小 / 按多久没用（Spotlight `kMDItemLastUsedDate`），搜索；右侧是选中 App 的全部痕迹
 - 痕迹只在 ~/Library 的固定子目录按 bundle id / App 名精确找：Application Support、Caches、Preferences（`<id>.plist` 和 `<id>.*.plist`）、Saved Application State、HTTPStorages、WebKit、Cookies、Logs、LaunchAgents（文件名以 id 开头或 plist 里指向该 App）。默认全勾（**偏好设置也勾**，用户定）；`CreativeApp` 认识的工具，其 Application Support 目录和 `roots` 算「工具数据」**默认不勾**
 - Containers / Group Containers 不读不删（读会弹授权），存在就提示去访达手动删；`SafetyPolicy.isProtected` 的路径跳过
 - 正在运行的 App 不让卸载；App 本身用 `NSWorkspace.recycle`（root 所有的 App 系统会要密码），其余用 `trashItem`，删前核对身份和占用；全部进废纸篓，可撤销

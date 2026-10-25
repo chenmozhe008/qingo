@@ -107,4 +107,34 @@ struct ToolPagesTests {
         #expect(orphans.map(\.id) == ["com.gonevendor.tool"])
         #expect(orphans.first?.traces.count == 2)
     }
+
+    @Test func folderOfAppsIsOneProduct() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let folder = home.appending(path: "Applications/Studio Suite")
+        func makeApp(_ name: String, id: String) throws {
+            let contents = folder.appending(path: "\(name).app/Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            (["CFBundleIdentifier": id, "CFBundleName": name, "CFBundlePackageType": "APPL"] as NSDictionary)
+                .write(to: contents.appending(path: "Info.plist"), atomically: true)
+        }
+        try makeApp("Studio Suite", id: "com.example.studio")
+        try makeApp("Uninstall Studio", id: "com.example.studio.uninstaller")
+        try makeApp("Studio Helper", id: "com.example.studio.helper")
+        let prefs = home.appending(path: "Library/Preferences")
+        try FileManager.default.createDirectory(at: prefs, withIntermediateDirectories: true)
+        for id in ["com.example.studio", "com.example.studio.helper"] {
+            try Data("<plist/>".utf8).write(to: prefs.appending(path: "\(id).plist"))
+        }
+        let uninstaller = AppUninstaller(policy: SafetyPolicy(home: home))
+        let apps = uninstaller.installedApps().filter { $0.bundleIDs.contains { $0.hasPrefix("com.example.") } }
+        // One entry, named after the folder, removed as the whole folder; leftovers of every member found.
+        #expect(apps.count == 1)
+        let suite = try #require(apps.first)
+        #expect(suite.name == "Studio Suite" && suite.bundleID == "com.example.studio")
+        #expect(suite.appURL.lastPathComponent == "Studio Suite.app")
+        let traces = uninstaller.traces(for: suite)
+        #expect(traces.first { $0.kind == .app }?.url.lastPathComponent == "Studio Suite")
+        #expect(traces.filter { $0.kind == .preferences }.count == 2)
+    }
 }

@@ -136,6 +136,7 @@ struct DiskScannerTests {
         try writeSparse(project.appending(path: "project-data"), bytes: 200_000_000)
 
         let store = ScanStore()
+        store.minShownBytes = 0
         store.result = try DiskScanner(policy: SafetyPolicy(home: root)).scan(root)
         // Tests share one defaults domain; never inherit another test's last category.
         store.filter = .caches

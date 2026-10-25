@@ -8,12 +8,18 @@ final class ScanStore: ObservableObject {
     @Published var result: ScanResult? {
         didSet {
             decisionNotes = Self.decisionNotes(for: result, policy: policy)
+            // Caches too small to matter are left out everywhere: listing 279 KB of logs only lengthens the list.
+            let minimum = minShownBytes
+            shownItems = result?.items.filter { !$0.canTrash || $0.bytes >= minimum } ?? []
             // Sidebar, cards and list all ask per category on every redraw; sort items once per result.
             var buckets: [ItemFilter: [ScanItem]] = [:]
-            for category in ItemFilter.allCases { buckets[category] = result?.items.filter { category.contains($0) } ?? [] }
+            for category in ItemFilter.allCases { buckets[category] = shownItems.filter { category.contains($0) } }
             itemsByCategory = buckets
         }
     }
+    /// Cleanable items below this are not listed or cleaned (tests set 0 for tiny fixtures; set before `result`).
+    var minShownBytes: Int64 = 1_000_000
+    private(set) var shownItems: [ScanItem] = []
     private var itemsByCategory: [ItemFilter: [ScanItem]] = [:]
     /// Items the user may delete after confirming, with what deleting costs (see `SafetyPolicy.decisionNote`).
     @Published private(set) var decisionNotes: [URL: String] = [:]
@@ -153,7 +159,7 @@ final class ScanStore: ObservableObject {
 
     /// Regenerable caches: the ones "全选" and the free-space card count.
     var eligibleItems: [ScanItem] {
-        result?.items.filter { $0.kind == .cache && $0.canTrash } ?? []
+        shownItems.filter { $0.kind == .cache && $0.canTrash }
     }
 
     /// Cleanable items in the current category (footer actions work per category).
@@ -169,7 +175,7 @@ final class ScanStore: ObservableObject {
     var selectableInFilter: [ScanItem] { displayedItems.filter(isSelectable) }
 
     var selectedCleanupItems: [ScanItem] {
-        result?.items.filter { selectedCleanupIDs.contains($0.id) && isSelectable($0) } ?? []
+        shownItems.filter { selectedCleanupIDs.contains($0.id) && isSelectable($0) }
     }
 
     var selectedDecidedItems: [ScanItem] { selectedCleanupItems.filter(isDecidable) }
