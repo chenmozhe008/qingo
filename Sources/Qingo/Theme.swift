@@ -393,15 +393,29 @@ struct PageHeader<Actions: View>: View {
     @ViewBuilder let actions: Actions
 
     var body: some View {
-        HStack(alignment: .center, spacing: 16) {
-            IconTile(symbol: symbol, tint: tint, size: 46)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 26, weight: .bold))
-                Text(subtitle).font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
+        // Actions beside the title while the words keep a comfortable width; below it in a narrow window.
+        ViewThatFits(in: .horizontal) {
+            HStack(alignment: .center, spacing: 16) {
+                IconTile(symbol: symbol, tint: tint, size: 46)
+                words.frame(minWidth: 360, alignment: .leading)
+                Spacer(minLength: 16)
+                actions
             }
-            Spacer(minLength: 16)
-            actions
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .center, spacing: 16) {
+                    IconTile(symbol: symbol, tint: tint, size: 46)
+                    words
+                }
+                actions
+            }
+        }
+    }
+
+    private var words: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title).font(.system(size: 26, weight: .bold)).lineLimit(1).minimumScaleFactor(0.8)
+            Text(subtitle).font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 }

@@ -246,9 +246,12 @@ struct UninstallView: View {
                 .labelsHidden()
                 .frame(width: 190)
             }
-            HStack(alignment: .top, spacing: 14) {
-                appList.frame(width: 330)
-                detail.frame(maxWidth: .infinity)
+            // Narrow windows give the list less room, so the details keep enough to read.
+            GeometryReader { proxy in
+                HStack(alignment: .top, spacing: 14) {
+                    appList.frame(width: proxy.size.width < 760 ? 260 : 330)
+                    detail.frame(maxWidth: .infinity)
+                }
             }
             .padding(.horizontal, 22)
             .padding(.bottom, 18)
@@ -359,17 +362,17 @@ struct UninstallView: View {
         let leftovers = (traces ?? []).filter { $0.kind != .app }.reduce(Int64(0)) { $0 + $1.bytes }
         return ScrollView {
             VStack(spacing: 0) {
-                HStack(alignment: .center, spacing: 16) {
-                    Image(nsImage: ItemPresentation.icon(forPath: app.appURL.path)).resizable().interpolation(.high).frame(width: 64, height: 64)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(app.name).font(.system(size: 20, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7)
-                        if let used = ToolText.lastUsed(app.lastUsed) {
-                            Text(used).font(.system(size: 12.5)).foregroundStyle(ToolText.isStale(app.lastUsed) ? Theme.amber : Theme.ink2)
-                        }
-                        if let version = app.version { Text("版本 \(version)").font(.system(size: 12.5)).foregroundStyle(Theme.ink3) }
+                // Side by side when there is room; otherwise the button goes under the name, never squeezed.
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .center, spacing: 16) {
+                        appIdentity(app, fitsWhole: true)
+                        Spacer(minLength: 8)
+                        uninstallButton(app, leftovers: leftovers, alignment: .trailing)
                     }
-                    Spacer(minLength: 8)
-                    uninstallButton(app, leftovers: leftovers)
+                    VStack(alignment: .leading, spacing: 14) {
+                        appIdentity(app, fitsWhole: false)
+                        uninstallButton(app, leftovers: leftovers, alignment: .leading)
+                    }
                 }
                 .padding(18)
                 if let traces {
@@ -523,10 +526,26 @@ struct UninstallView: View {
     // MARK: Footer & confirm
 
     /// The page's one action, beside the app it removes; size and what is left behind underneath.
-    private func uninstallButton(_ app: InstalledApp, leftovers: Int64) -> some View {
+    /// `fitsWhole`: the side-by-side layout needs the full name to fit; stacked, a long name shrinks instead.
+    private func appIdentity(_ app: InstalledApp, fitsWhole: Bool) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            Image(nsImage: ItemPresentation.icon(forPath: app.appURL.path)).resizable().interpolation(.high).frame(width: 64, height: 64)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(app.name).font(.system(size: 20, weight: .bold)).lineLimit(1)
+                    .minimumScaleFactor(fitsWhole ? 1 : 0.6)
+                    .fixedSize(horizontal: fitsWhole, vertical: false)
+                if let used = ToolText.lastUsed(app.lastUsed) {
+                    Text(used).font(.system(size: 12.5)).foregroundStyle(ToolText.isStale(app.lastUsed) ? Theme.amber : Theme.ink2)
+                }
+                if let version = app.version { Text("版本 \(version)").font(.system(size: 12.5)).foregroundStyle(Theme.ink3) }
+            }
+        }
+    }
+
+    private func uninstallButton(_ app: InstalledApp, leftovers: Int64, alignment: HorizontalAlignment) -> some View {
         let bytes = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }.reduce(Int64(0)) { $0 + $1.bytes }
         let running = store.isRunning(app)
-        return VStack(alignment: .trailing, spacing: 8) {
+        return VStack(alignment: alignment, spacing: 8) {
             Button(store.isWorking ? "正在卸载…" : "卸载 \(ByteFormat.string(bytes))") { store.reviewCleanup() }
                 .buttonStyle(HeroButtonStyle())
                 .disabled(store.isWorking || running || store.traces[app.id] == nil)

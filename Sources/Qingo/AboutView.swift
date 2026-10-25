@@ -168,10 +168,12 @@ struct AboutView: View {
                 Button { store.aboutTab = tab } label: {
                     Text(tab.rawValue)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(on ? Color.white : Theme.ink2)
+                        .foregroundStyle(on ? Theme.ink : Theme.ink2)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(RoundedRectangle(cornerRadius: 8).fill(on ? Theme.blue : .clear))
+                        .padding(.vertical, 8)
+                        // Like a system segmented control: the chosen tab is a raised neutral pill, not a colour block.
+                        .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(on ? Theme.panel : .clear)
+                            .shadow(color: .black.opacity(on ? 0.08 : 0), radius: 2, y: 1))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
@@ -188,8 +190,8 @@ struct AboutView: View {
         VStack(alignment: .leading, spacing: 28) {
             VStack(alignment: .leading, spacing: 12) {
                 Text("AI 时代的 Mac 清理工具")
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(LinearGradient(colors: [Theme.blue, Theme.indigo], startPoint: .leading, endPoint: .trailing))
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Theme.ink)
                 Text("AI 工具和创作软件每天都在 Mac 上留下运行时、缓存和模型，动不动就是几个 GB。传统清理工具分不清哪些能重新生成、哪些是你的对话和作品。小清看得懂它们：能重新生成的帮你清掉，工程、对话和模型原样留着。")
                     .font(.system(size: 14.5)).foregroundStyle(Theme.ink2)
                     .lineSpacing(5)
@@ -197,7 +199,7 @@ struct AboutView: View {
                 // Open source is a reason to trust a cleaner; make the repository the obvious next click.
                 Button { NSWorkspace.shared.open(AppInfo.repository) } label: {
                     HStack(spacing: 12) {
-                        IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Color(red: 0.14, green: 0.16, blue: 0.2), size: 34)
+                        IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.slate, size: 34)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("代码完全开源").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink)
                             Text("github.com/chenmozhe008/qingo").font(.system(size: 12)).foregroundStyle(Theme.ink2)
@@ -220,10 +222,7 @@ struct AboutView: View {
             }
             .padding(22)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(LinearGradient(colors: [Theme.blue.opacity(0.09), Theme.indigo.opacity(0.07), Theme.cyan.opacity(0.05)],
-                                     startPoint: .topLeading, endPoint: .bottomTrailing)))
-            .glass(radius: 16)
+            .glass()
 
             VStack(alignment: .leading, spacing: 12) {
                 Text("它的优势").font(.system(size: 18, weight: .bold))
@@ -235,10 +234,10 @@ struct AboutView: View {
                           "认得剪映、达芬奇、After Effects、Premiere、Final Cut、Blender 等主流剪辑和设计软件。",
                           clean: "剪映缓存、AE 磁盘缓存、Adobe 媒体缓存可以直接清；达芬奇、Final Cut 的渲染缓存，告诉你在软件里怎么清",
                           keep: "工程、草稿和素材，一个不碰")
-                advantage("先确认，再清理", nil, "checkmark.shield.fill", Theme.green,
-                          "每一项都写明是什么、能不能删、为什么。",
-                          clean: "你勾选确认后才放进废纸篓，删错了随时拖回来",
-                          keep: "正在使用的文件自动跳过，也不会替你清空废纸篓")
+                advantage("只清能放心清的", nil, "checkmark.shield.fill", Theme.green,
+                          "列出来的都是会自动重新生成的东西，默认选好，点一下就清。拿不准的一律不列，不用你判断。",
+                          clean: "只是放进废纸篓，删错了随时拖回来",
+                          keep: "正在使用的软件自动跳过，也不会替你清空废纸篓")
                 advantage("代码开源，跟得上新工具", nil, "lock.open.fill", Theme.violet,
                           "全部代码在 GitHub 公开。哪些会清、哪些不碰，规则都写在代码里，谁都能查。AI 工具更新快，识别清单集中在一个文件里，新工具出来很快就能加上，你也可以自己提交。",
                           clean: "MIT 许可证，免费使用",
@@ -286,7 +285,7 @@ struct AboutView: View {
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .topLeading)
-        .glass(radius: 14)
+        .glass()
     }
 
     private func ruleLine(_ symbol: String, _ tint: Color, _ text: String) -> some View {

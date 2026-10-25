@@ -17,10 +17,12 @@
 - 总览（2026-10-25 定稿方案 D「先说结果」，效果图 `output/mockups/k-d-outcome.png`；按苹果原则：内容优先、一眼看懂、先说结果、主操作就在眼前、渐进展开）：`showingOverview` 独立页 = 左侧空间圆环 + 右侧「N 处缓存…／可以放心腾出／X」+ 胶囊主按钮「清理 X」（`HeroButtonStyle`）+「查看这 N 处 ›」（左侧是 `SpaceRing`），底部四张分类卡（玻璃，点进分类页）。分类页只有标题和列表，不再重复统计卡
 - 空间圆环 `SpaceRing`（2026-10-25 用户看图选方案 ①，效果图 `output/mockups/m-overview-1-ring.png`）：一整圈粗圆环，有色弧＝已用、缺口＝可用，够用蓝色、< 10 GB 橙色；中间「现在可用 / X / 共 Y」。**只回答「还剩多少」**，「被谁占了」交给四张分类卡，所以不要图例。**不许写「清理后 X」**——清理只是进废纸篓，清空前空间不变（用户指出过这是错的）。之前的分色刻度表盘被否：要配图例才看得懂
 - 所有页面同一套页头 `PageHeader`：彩色图块 + 页面名 + 一句「这里是什么、会怎样」+ 右侧主按钮（胶囊 `HeroButtonStyle`）。主按钮不放底部工具条（底部工具条已删）；**分类页的清理按钮只清本页勾选**（`ScanStore.reviewCleanup(scope:)`），总览的按钮清全部。扫描中用同款圆环转圈；欢迎页、未扫描页、确认弹窗也用胶囊主按钮
-- 背景随空间状态变：剩余 ≥ 10 GB 冷静的蓝紫，< 10 GB 变暖（`Backdrop(warm:)`）
+- **配色（2026-10-25 用户嫌蓝紫渐变「挺大众」，要 App Store 头部应用那种美学）**：一个标志色「天青」（取「小清」的清，宋瓷天青釉），按钮、圆环、链接、选中都用它；背景是安静的暖白（深色是石墨灰），左上角带一点天青的光；分类色低饱和成套：缓存天青、创作珊瑚、微信竹青、大文件藕紫、卸载赭橙、开发黛蓝。`Theme.blue` 这个名字保留，值已是天青。App 图标暂仍是蓝色（用户之前定过不改图标）
+- 背景随空间状态变：剩余 ≥ 10 GB 是上面的安静底色，< 10 GB 变暖（`Backdrop(warm:)`）
+- **最小窗口（960×640）下不许挤坏**：胶囊主按钮永不折行（`HeroButtonStyle` 自带 lineLimit+fixedSize）；总览窄时圆环缩小、按钮和「查看」上下排、分类卡两行两列；卸载页窄时列表收窄、卸载按钮挪到名字下面；`PageHeader` 放不下时按钮挪到标题下面。改界面必须用 `--window-size=960x640` 截一张验
 - 图标：侧栏全部用 SF Symbols 实心彩色图块（`IconTile`）。总览＝仪表、快速扫描＝闪电、完整扫描＝硬盘、文件夹＝文件夹、创作与 AI＝魔棒、微信＝对话气泡、大文件＝文档、卸载＝垃圾桶、开发工程＝锤子；当前扫描位置的图块是蓝色、其余灰色，行底色只给当前页面（总览/分类/工具），避免两行同时像被选中
 - 背景 `Backdrop` 是柔和的 MeshGradient 色场（macOS 15+），液态玻璃要有东西可折射才看得出来，别换回纯色
-- 子页「返回总览」用蓝色 tinted 按钮（`ToolbarButtonStyle(tinted:)`），别做成灰的
+- 子页「返回总览」用标志色 tinted 按钮（`ToolbarButtonStyle(tinted:)`），别做成灰的
 - 磁盘可用空间一律**实时读** `volumeAvailableCapacityForImportantUsage`（与访达一致），不用扫描时存下的数
 - GitHub **公开仓库**（MIT，2026-10-21 开源）：chenmozhe008/qingo。仓库里不放密钥、个人路径和个人配置；`SafetyPolicy` 的保护名单只写通用目录。README 面向公众，内部约定写本文件
 - 文案风格（2026-10-21 用户定，参照 Apple）：一行只说一件事，**不用「·」串信息**；不写「点击这里可以…」这类多余提示；竞品只写查证过的事实
@@ -37,7 +39,7 @@
 
 定稿效果图在 `output/mockups/b-*.png`（HTML 源同目录）。改 UI 先对照效果图，大改先出新效果图给用户选，不在代码里一轮轮试。
 
-- 深色蓝紫渐变底 + 磨砂玻璃卡片，配色和通用组件集中在 `Theme.swift`（`glass()`、`GlowBar`、`UsageRing`、按钮样式）
+- 天青标志色 + 安静底色 + 玻璃卡片（2026-10-25 起，取代原深色蓝紫渐变），配色和通用组件集中在 `Theme.swift`（`glass()`、`GlowBar`、`UsageRing`、按钮样式）
 - 欢迎页：大图标 + 圆形发光「快速扫描」+ 底部磁盘容量卡；无侧栏
 - 结果页：左侧栏（扫描位置 + 分类）；顶部环形图（磁盘可用）+ 2×2 统计卡（点卡片切分类）；下方列表，点行展开说明/路径/Finder；底部操作条
 - 窗口用 `.hiddenTitleBar`，内容顶到标题栏，左上留红绿灯位置
@@ -82,7 +84,7 @@
 
 - 截图只截本 App 窗口：按 PID 取最大窗口 ID → `screencapture -l <id>`（不受其他窗口遮挡）
 - 切分类：`defaults write io.github.chenmozhe008.qingo lastFilter "<分类名>"` 后重开 App；**不要用模拟鼠标点击**，用户可能在用电脑（2026-10-20 点到过微信）
-- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--category=<分类 rawValue>`（如 `大文件与工程`、`剪辑与设计软件`）直接打开分类页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
+- 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--window-size=960x640` 启动时把窗口设成指定大小（截窄窗口用，不依赖辅助功能权限）；`--category=<分类 rawValue>`（如 `大文件与工程`、`剪辑与设计软件`）直接打开分类页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标

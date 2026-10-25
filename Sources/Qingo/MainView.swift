@@ -730,21 +730,26 @@ struct MainView: View {
     /// Outcome first (Flighty), one glance at the state (Weather, Activity rings), the one action beside it
     /// (Things), details on demand (Storage settings): the dial, what cleaning gives you, one button, four platters.
     private func overviewPage(_ result: ScanResult) -> some View {
-        VStack(spacing: 0) {
-            banners.padding(.horizontal, 40)
-            Spacer(minLength: 6)
-            HStack(alignment: .center, spacing: 48) {
-                // Free space is read live: results go stale as soon as anything is deleted.
-                TimelineView(.periodic(from: .now, by: 30)) { _ in spaceRing(result) }
-                    .frame(width: 320, height: 320)
-                heroCopy
-                Spacer(minLength: 0)
+        // Narrow windows get a smaller ring, stacked actions and the platters two by two, so nothing is squeezed.
+        GeometryReader { proxy in
+            let compact = proxy.size.width < 900
+            let margin: CGFloat = compact ? 28 : 40
+            VStack(spacing: 0) {
+                banners.padding(.horizontal, margin)
+                Spacer(minLength: 6)
+                HStack(alignment: .center, spacing: compact ? 30 : 48) {
+                    // Free space is read live: results go stale as soon as anything is deleted.
+                    TimelineView(.periodic(from: .now, by: 30)) { _ in spaceRing(result) }
+                        .frame(width: compact ? 220 : 320, height: compact ? 220 : 320)
+                    heroCopy(compact: compact)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, margin)
+                Spacer(minLength: 14)
+                platters(result, compact: compact)
+                    .padding(.horizontal, margin)
+                    .padding(.bottom, compact ? 20 : 26)
             }
-            .padding(.horizontal, 40)
-            Spacer(minLength: 14)
-            platters(result)
-                .padding(.horizontal, 40)
-                .padding(.bottom, 26)
         }
     }
 
@@ -754,25 +759,27 @@ struct MainView: View {
         return SpaceRing(total: live?.total ?? result.volumeTotalBytes ?? 0, free: free, low: free < Self.lowSpaceBytes)
     }
 
-    private var heroCopy: some View {
+    private func heroCopy(compact: Bool) -> some View {
         let safe = store.eligibleItems
+        let titleSize: CGFloat = compact ? 28 : 36
+        let actions = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14)) : AnyLayout(HStackLayout(spacing: 18))
         let selected = store.selectedCleanupBytes
         let count = store.selectedCleanupItems.count
         return VStack(alignment: .leading, spacing: 0) {
             if safe.isEmpty {
-                Text("这台 Mac 很干净").font(.system(size: 34, weight: .bold))
+                Text("这台 Mac 很干净").font(.system(size: titleSize, weight: .bold))
                 Text("没有需要清理的缓存。对话、作品和设置本来就不会碰。")
                     .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
                     .fixedSize(horizontal: false, vertical: true)
             } else {
                 Text("\(safe.count) 处缓存，下次使用会自动重新生成").font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
-                Text("可以放心腾出").font(.system(size: 36, weight: .bold)).padding(.top, 8)
+                Text("可以放心腾出").font(.system(size: titleSize, weight: .bold)).lineLimit(1).padding(.top, 8)
                 Text(ByteFormat.string(selected > 0 ? selected : ScanStore.sum(safe)))
-                    .font(.system(size: 36, weight: .bold)).monospacedDigit().foregroundStyle(Theme.blue)
+                    .font(.system(size: titleSize, weight: .bold)).monospacedDigit().lineLimit(1).foregroundStyle(Theme.blue)
                 Text("对话、作品和设置一样不碰。放进废纸篓后，随时可以拖回来。")
                     .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
                     .fixedSize(horizontal: false, vertical: true)
-                HStack(spacing: 18) {
+                actions {
                     Button { store.reviewCleanup() } label: {
                         if store.isCleaning {
                             HStack(spacing: 8) {
@@ -791,20 +798,22 @@ struct MainView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Theme.blue)
                 }
-                .padding(.top, 26)
+                .padding(.top, compact ? 20 : 26)
             }
         }
         .frame(maxWidth: 460, alignment: .leading)
     }
 
     /// The four categories, coloured like their ticks on the dial.
-    private func platters(_ result: ScanResult) -> some View {
+    private func platters(_ result: ScanResult, compact: Bool) -> some View {
         let chats = result.chatApps.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
         let caches = store.items(in: .caches).filter(\.canTrash)
         let creative = store.items(in: .creative).filter(\.canTrash)
         let large = store.items(in: .large)
         let tools = Set(creative.compactMap { CreativeApp.of($0)?.id }).count
-        return HStack(spacing: 14) {
+        let grid = compact ? [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+                           : Array(repeating: GridItem(.flexible(), spacing: 14), count: 4)
+        return LazyVGrid(columns: grid, spacing: 14) {
             platter(.caches, bytes: ScanStore.sum(caches), note: caches.isEmpty ? "没有发现" : "\(caches.count) 处，已选好")
             platter(.creative, bytes: ScanStore.sum(creative), note: creative.isEmpty ? "没有需要清理的" : "\(tools) 个工具的缓存和日志")
             platter(.chat, bytes: chats, note: result.chatApps.isEmpty ? "没有发现" : "在微信里清理更安全 ›", warn: chats >= 2_000_000_000)
@@ -1930,6 +1939,11 @@ struct WindowDragEnabler: NSViewRepresentable {
             // Transparent window so the behind-window blur in Backdrop shows the desktop.
             window.isOpaque = false
             window.backgroundColor = .clear
+            // `--window-size=960x640`: open at that size (screenshots of narrow layouts without touching the mouse).
+            if let size = ProcessInfo.processInfo.arguments.first(where: { $0.hasPrefix("--window-size=") })?
+                .dropFirst("--window-size=".count).split(separator: "x").compactMap({ Double($0) }), size.count == 2 {
+                window.setContentSize(NSSize(width: size[0], height: size[1]))
+            }
         }
         return view
     }
