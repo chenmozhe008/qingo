@@ -167,4 +167,32 @@ struct DecisionTierTests {
         #expect(FileManager.default.fileExists(atPath: dependencies.path))
         #expect(store.result?.items.count == before && store.undoable.isEmpty)
     }
+
+    /// One click cleans: a cache whose files are open (its app running) still goes, without a confirmation sheet.
+    @MainActor @Test func cacheInUseIsCleanedInOneClick() async throws {
+        let home = try makeHome()
+        let build = home.appending(path: "Tool/.build")
+        try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        try Data("// fixture".utf8).write(to: home.appending(path: "Tool/Package.swift"))
+        let object = build.appending(path: "object.o")
+        try Data(repeating: 1, count: 64).write(to: object)
+        defer { try? FileManager.default.removeItem(at: home) }
+
+        let store = ScanStore()
+        store.minShownBytes = 0
+        store.setRoot(CanonicalPath.url(home))
+        store.result = try DiskScanner(policy: SafetyPolicy(home: home)).scan(home)
+        store.filter = .caches
+        let cache = try #require(store.result?.items.first { $0.kind == .cache && $0.canTrash })
+        store.selectedCleanupIDs = [cache.id]
+        let handle = try FileHandle(forReadingFrom: object)
+        defer { try? handle.close() }
+        store.reviewCleanup()
+        #expect(!store.showTrashConfirmation)
+        while store.isCleaning { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(store.cleanupReport?.movedCount == 1)
+        #expect(!FileManager.default.fileExists(atPath: build.path))
+        store.undoLastCleanup()
+        while store.isRestoring { try await Task.sleep(for: .milliseconds(20)) }
+    }
 }

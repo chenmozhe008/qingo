@@ -21,7 +21,10 @@ struct TrashService {
         guard lstat(url.path, &info) == 0 else { throw TrashError.changed }
         let current = FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino))
         guard current == item.identity, (info.st_mode & mode_t(S_IFMT)) == expectedType else { throw TrashError.changed }
-        try Self.ensureUnused(url, isDirectory: isDirectory)
+        // A regenerable cache may go while its app is open: the app just builds a new one, nothing is lost
+        // (the user cleans in one click; asking them to quit apps first was the wrong trade-off).
+        // Anything the user decides about (a large file) must not be in use.
+        if decided { try Self.ensureUnused(url, isDirectory: isDirectory) }
         // The usage check can take time; revalidate identity immediately before moving.
         guard lstat(url.path, &info) == 0,
               FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)) == item.identity,
@@ -31,15 +34,16 @@ struct TrashService {
         return resultingURL as URL? ?? url
     }
 
-    /// Moves items one at a time; anything whose app is running, changed or in use is reported, not moved.
+    /// Moves items one at a time; anything changed, protected or (for large files) in use is reported, not moved.
     /// Call off the main actor.
     static func moveAll(_ items: [ScanItem], policy: SafetyPolicy, progress: @Sendable (Int) async -> Void = { _ in }) async -> CleanupOutcome {
         var outcome = CleanupOutcome()
         let service = TrashService(policy: policy)
         for item in items {
             do {
-                if await MainActor.run(body: { ItemPresentation.runningOwner(of: item) != nil }) { throw TrashError.inUse }
+                let owner = await MainActor.run { ItemPresentation.runningOwner(of: item) }
                 let trashed = try service.moveToTrash(item)
+                if let owner, !outcome.openApps.contains(owner) { outcome.openApps.append(owner) }
                 outcome.moved.append(TrashedItem(item: item, trashed: trashed))
                 let addition = outcome.bytes.addingReportingOverflow(item.bytes)
                 outcome.bytes = addition.overflow ? Int64.max : addition.partialValue
@@ -106,8 +110,9 @@ struct CleanupOutcome: Sendable {
     var moved: [TrashedItem] = []
     var failures: [CleanupReport.Failure] = []
     var bytes: Int64 = 0
+    var openApps: [String] = []
 
-    var report: CleanupReport { CleanupReport(movedCount: moved.count, movedBytes: bytes, failures: failures) }
+    var report: CleanupReport { CleanupReport(movedCount: moved.count, movedBytes: bytes, failures: failures, openApps: openApps) }
 }
 
 enum TrashError: LocalizedError {

@@ -15,7 +15,6 @@ final class ScanStore: ObservableObject {
             var buckets: [ItemFilter: [ScanItem]] = [:]
             for category in ItemFilter.allCases { buckets[category] = shownItems.filter { category.contains($0) } }
             itemsByCategory = buckets
-            refreshBusyApps()
         }
     }
     /// Cleanable items below this are not listed or cleaned (tests set 0 for tiny fixtures; set before `result`).
@@ -175,158 +174,12 @@ final class ScanStore: ObservableObject {
 
     var selectableInFilter: [ScanItem] { displayedItems.filter(isSelectable) }
 
-    /// Picked and cleanable now: caches held by an open app wait until it quits (see `busyApps`).
     var selectedCleanupItems: [ScanItem] {
-        shownItems.filter { selectedCleanupIDs.contains($0.id) && isSelectable($0) && !busyItemIDs.contains($0.id) }
+        shownItems.filter { selectedCleanupIDs.contains($0.id) && isSelectable($0) }
     }
 
-    // MARK: Apps holding caches
-
-    /// An app that has some of the safe caches open right now. They are left out of cleaning (moving a cache
-    /// out from under a running app breaks it) and listed with a 退出 button, so it is clear what to close.
-    struct BusyApp: Identifiable, Equatable {
-        var id: String { name }
-        let name: String
-        /// For the icon; also what 退出 quits.
-        let bundleID: String?
-        /// An ordinary app the user can quit from here; false for background helpers (updaters and the like).
-        let canQuit: Bool
-        var itemIDs: Set<URL>
-        var bytes: Int64
-    }
-
-    @Published private(set) var busyApps: [BusyApp] = []
-    @Published private(set) var busyItemIDs: Set<URL> = []
-    private var busyTask: Task<Void, Never>?
-    private var busyObservers: [NSObjectProtocol] = []
-
-    func busyApp(for item: ScanItem) -> BusyApp? { busyApps.first { $0.itemIDs.contains(item.id) } }
-
-    /// Ticked in the list: picked and not waiting for its app to quit.
-    func isPicked(_ id: URL) -> Bool { selectedCleanupIDs.contains(id) && !busyItemIDs.contains(id) }
-
-    /// Row subtitle for a cache its app holds open.
-    func busyNote(_ item: ScanItem) -> String? {
-        guard let app = busyApp(for: item) else { return nil }
-        // The row is usually titled after the same app; don't say its name twice.
-        return ItemPresentation.info(for: item).title == app.name ? "开着，关掉后再清" : "\(app.name)开着，关掉后再清"
-    }
-
-    /// Re-checks which safe caches are held open: first by owning app (instant), then by open files (`lsof`,
-    /// off the main thread). Runs after every scan, when apps launch or quit, and when 小清 comes forward.
-    func refreshBusyApps() {
-        busyTask?.cancel()
-        let items = eligibleItems
-        guard !items.isEmpty else {
-            busyApps = []
-            busyItemIDs = []
-            return
-        }
-        var owners: [URL: Owner] = [:]
-        var rest: [ScanItem] = []
-        for item in items {
-            if let app = ItemPresentation.runningApp(of: item) {
-                // A helper (an updater inside 腾讯会议.app) is named after the app around it.
-                owners[item.id] = app.activationPolicy == .regular
-                    ? Owner(name: app.localizedName ?? item.name, bundleID: app.bundleIdentifier, canQuit: true)
-                    : Self.owner(ofProcess: app.processIdentifier) ?? Owner(name: app.localizedName ?? item.name, bundleID: app.bundleIdentifier, canQuit: false)
-            } else {
-                rest.append(item)
-            }
-        }
-        busyTask = Task { [weak self] in
-            let found = await Self.openFileOwners(rest)
-            guard !Task.isCancelled, let self else { return }
-            owners.merge(found) { first, _ in first }
-            var apps: [String: BusyApp] = [:]
-            for item in items {
-                guard let owner = owners[item.id] else { continue }
-                var app = apps[owner.name] ?? BusyApp(name: owner.name, bundleID: owner.bundleID, canQuit: owner.canQuit, itemIDs: [], bytes: 0)
-                app.itemIDs.insert(item.id)
-                app.bytes += item.bytes
-                apps[owner.name] = app
-            }
-            let sorted = apps.values.sorted { $0.bytes > $1.bytes }
-            if sorted != self.busyApps { self.busyApps = sorted }
-            let ids = Set(owners.keys)
-            if ids != self.busyItemIDs { self.busyItemIDs = ids }
-        }
-    }
-
-    struct Owner: Sendable {
-        let name: String
-        let bundleID: String?
-        let canQuit: Bool
-    }
-
-    /// Who has files open inside each folder, named after the app bundle the process lives in.
-    nonisolated private static func openFileOwners(_ items: [ScanItem]) async -> [URL: Owner] {
-        await withTaskGroup(of: (URL, Owner?).self) { group in
-            for item in items {
-                group.addTask {
-                    let pids = openFilePIDs(item.url)
-                    for pid in pids where pid != getpid() {
-                        if let owner = await owner(ofProcess: pid) { return (item.id, owner) }
-                    }
-                    return (item.id, nil)
-                }
-            }
-            var result: [URL: Owner] = [:]
-            for await (id, owner) in group { if let owner { result[id] = owner } }
-            return result
-        }
-    }
-
-    nonisolated private static func openFilePIDs(_ url: URL) -> [pid_t] {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/sbin/lsof")
-        process.arguments = ["-n", "-P", "-t", "+D", url.path]
-        let output = Pipe()
-        process.standardOutput = output
-        process.standardError = FileHandle.nullDevice
-        do { try process.run() } catch { return [] }
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        return String(decoding: data, as: UTF8.self).split(whereSeparator: \.isNewline).compactMap { pid_t($0) }
-    }
-
-    /// The app a process belongs to: the outermost .app around its executable. Helpers inside an app
-    /// (Edge Helper, an updater) count as that app; only a running regular app can be quit from here.
-    private static func owner(ofProcess pid: pid_t) -> Owner? {
-        if let running = NSRunningApplication(processIdentifier: pid), running.activationPolicy == .regular {
-            return Owner(name: running.localizedName ?? "", bundleID: running.bundleIdentifier, canQuit: true)
-        }
-        var buffer = [CChar](repeating: 0, count: 4096)
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }
-        let path = String(cString: buffer)
-        guard let range = path.range(of: ".app/") else {
-            return Owner(name: URL(fileURLWithPath: path).lastPathComponent, bundleID: nil, canQuit: false)
-        }
-        let appURL = URL(fileURLWithPath: String(path[..<range.lowerBound]) + ".app")
-        let name = ItemPresentation.appTitle(appURL)
-        let bundleID = Bundle(url: appURL)?.bundleIdentifier
-        let regular = bundleID.flatMap { id in
-            NSRunningApplication.runningApplications(withBundleIdentifier: id).first { $0.activationPolicy == .regular }
-        }
-        return Owner(name: regular?.localizedName ?? name, bundleID: bundleID, canQuit: regular != nil)
-    }
-
-    /// Asks the app to quit, the same as ⌘Q (it may ask to save first). The list updates when it is gone.
-    func quit(_ app: BusyApp) {
-        guard app.canQuit, let id = app.bundleID else { return }
-        for running in NSRunningApplication.runningApplications(withBundleIdentifier: id) { running.terminate() }
-    }
-
-    func watchRunningApps() {
-        guard busyObservers.isEmpty else { return }
-        let center = NSWorkspace.shared.notificationCenter
-        for name in [NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didLaunchApplicationNotification] {
-            busyObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // Give the app a moment to close its files.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { Task { @MainActor in self?.refreshBusyApps() } }
-            })
-        }
-    }
+    /// Ticked in the list.
+    func isPicked(_ id: URL) -> Bool { selectedCleanupIDs.contains(id) }
 
     var selectedDecidedItems: [ScanItem] { selectedCleanupItems.filter(isDecidable) }
 
@@ -376,7 +229,7 @@ final class ScanStore: ObservableObject {
     // MARK: Selection
 
     func setCleanupSelected(_ item: ScanItem, selected: Bool) {
-        guard !isCleaning, isSelectable(item), !busyItemIDs.contains(item.id), result?.items.contains(where: { $0.id == item.id }) == true else { return }
+        guard !isCleaning, isSelectable(item), result?.items.contains(where: { $0.id == item.id }) == true else { return }
         if selected {
             selectedCleanupIDs.insert(item.id)
         } else {
@@ -420,6 +273,12 @@ final class ScanStore: ObservableObject {
         guard !itemsToClean.isEmpty, !isCleaning else { return }
         hoveredID = nil
         confirmDecided = false
+        // Caches go in one click: they land in the Trash and the banner offers 撤销, so a "确定吗" adds nothing.
+        // Only large files, which are the user's own, get the confirmation sheet.
+        guard itemsToClean.contains(where: isDecidable) else {
+            trashSelectedItems()
+            return
+        }
         measureRunningOwners()
         showTrashConfirmation = true
     }

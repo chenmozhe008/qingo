@@ -97,6 +97,8 @@ struct CleanupReport: Sendable {
     let movedCount: Int
     let movedBytes: Int64
     let failures: [Failure]
+    /// Apps that were open while their caches went; they hold on to the space until they restart.
+    var openApps: [String] = []
 }
 
 struct ScanProgress: Sendable {
