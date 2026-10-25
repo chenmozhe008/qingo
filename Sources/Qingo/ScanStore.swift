@@ -264,18 +264,25 @@ final class ScanStore: ObservableObject {
         showTrashConfirmation = true
     }
 
-    var isOverview: Bool { filter != .creative && filter != .chat }
+    /// The overview page (dial, outcome, one button, category platters), not a category's list.
+    @Published var showingOverview = true
 
     func showOverview() {
         tool = nil
-        if !isOverview { filter = .caches }
+        showingOverview = true
         selectedID = nil
     }
 
     func selectCategory(_ category: ItemFilter) {
         tool = nil
+        showingOverview = false
         filter = category
         selectedID = nil
+    }
+
+    /// Where "查看这 N 处" leads: the category holding most of what can be cleaned.
+    var mainCleanableCategory: ItemFilter {
+        items(in: .caches).contains(where: \.canTrash) ? .caches : .creative
     }
 
     // MARK: Locations
@@ -335,6 +342,7 @@ final class ScanStore: ObservableObject {
             return
         }
         tool = nil
+        showingOverview = true
         // Clicking the location you're already on goes back to its overview.
         if isCurrentScope(url, quick: quick), result != nil {
             showOverview()

@@ -40,7 +40,7 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .foregroundStyle(Theme.ink)
-        .background(Backdrop())
+        .background(Backdrop(warm: (volumeCapacity(home)?.free ?? .max) < Self.lowSpaceBytes))
         .ignoresSafeArea(.container, edges: .top)
         .preferredColorScheme(store.appearance.colorScheme)
         .background(WindowDragEnabler())
@@ -380,7 +380,7 @@ struct MainView: View {
                     if store.result != nil { overviewRow }
                     sectionHeader("扫描位置")
                     locationRow("快速扫描", icon: "bolt.fill", url: home, quick: true)
-                    locationRow("完整扫描", icon: "house.fill", url: home, quick: false)
+                    locationRow("完整扫描", icon: "internaldrive.fill", url: home, quick: false)
                     ForEach(otherVolumes, id: \.self) { volume in
                         locationRow(volume.lastPathComponent, icon: "externaldrive.fill", url: volume, quick: false)
                     }
@@ -395,7 +395,7 @@ struct MainView: View {
 
                     sectionHeader("工具").padding(.top, 12)
                     toolRow("卸载应用", icon: "trash.fill", tint: Theme.orange, page: .uninstall)
-                    toolRow("开发工程", icon: "chevron.left.forwardslash.chevron.right", tint: Theme.indigo, page: .dev)
+                    toolRow("开发工程", icon: "hammer.fill", tint: Theme.indigo, page: .dev)
 
                     if store.result != nil {
                         sectionHeader("分类").padding(.top, 12)
@@ -491,19 +491,16 @@ struct MainView: View {
     }
 
     private var overviewRow: some View {
-        let active = store.isOverview && store.tool == nil
+        let active = store.showingOverview && store.tool == nil
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.showOverview() } } label: {
             HStack(spacing: 10) {
-                Image(systemName: "circle.lefthalf.filled")
-                    .font(.system(size: 14, weight: .medium))
-                    .frame(width: 24)
-                    .foregroundStyle(active ? Theme.cyan : Theme.ink2)
-                Text("总览").font(.system(size: 14.5, weight: .semibold))
+                IconTile(symbol: "gauge.with.dots.needle.67percent", tint: Theme.blue, size: 24)
+                Text("总览").font(.system(size: 14, weight: active ? .semibold : .regular))
                 Spacer(minLength: 4)
             }
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 8)
+            .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.13) : .clear))
             .contentShape(Rectangle())
         }
@@ -525,11 +522,10 @@ struct MainView: View {
         let hovered = removable && store.hoveredID == url
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectLocation(url, quick: quick) } } label: {
             HStack(spacing: 10) {
-                Image(systemName: icon)
-                    .font(.system(size: 13, weight: .medium))
-                    .frame(width: 24)
-                    .foregroundStyle(active ? Theme.cyan : Theme.ink2)
-                Text(title).lineLimit(1).truncationMode(.middle)
+                // The location being shown keeps its colour; the others are grey. The row background is kept for
+                // the page (总览, a category, a tool), so two rows never look selected at once.
+                IconTile(symbol: icon, tint: active ? Theme.blue : Theme.slate.opacity(0.7), size: 24)
+                Text(title).lineLimit(1).truncationMode(.middle).fontWeight(active ? .semibold : .regular)
                 Spacer(minLength: 4)
                 if hovered {
                     Button { store.removeSavedFolder(url) } label: {
@@ -548,8 +544,7 @@ struct MainView: View {
             .font(.system(size: 14))
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.fill(0.08) : .clear))
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -563,14 +558,17 @@ struct MainView: View {
     private var addFolderRow: some View {
         Button { store.chooseFolder() } label: {
             HStack(spacing: 10) {
-                Image(systemName: "plus").font(.system(size: 13, weight: .medium)).frame(width: 24)
+                RoundedRectangle(cornerRadius: 24 * 0.28, style: .continuous)
+                    .strokeBorder(Theme.ink3.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [3, 2.5]))
+                    .overlay(Image(systemName: "plus").font(.system(size: 11, weight: .bold)).foregroundStyle(Theme.ink3))
+                    .frame(width: 24, height: 24)
                 Text("添加文件夹")
                 Spacer(minLength: 4)
             }
             .font(.system(size: 14))
             .foregroundStyle(Theme.ink3)
             .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -588,7 +586,7 @@ struct MainView: View {
     }
 
     private func categoryRow(_ category: ItemFilter, bytes: Int64) -> some View {
-        let selected = store.tool == nil && store.filter == category
+        let selected = store.tool == nil && !store.showingOverview && store.filter == category
         let tint = Theme.color(category)
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
             HStack(spacing: 10) {
@@ -645,213 +643,188 @@ struct MainView: View {
     private func resultView(_ result: ScanResult) -> some View {
         VStack(spacing: 0) {
             topBar(result)
-            if store.filter == .creative {
+            if store.showingOverview {
+                overviewPage(result)
+            } else if store.filter == .creative {
                 creativeView(result)
             } else if store.filter == .chat {
                 chatView(result)
             } else {
                 VStack(spacing: 14) {
-                    HStack(alignment: .top, spacing: 12) {
-                        // Free space is read live (scan results go stale as soon as anything is deleted).
-                        TimelineView(.periodic(from: .now, by: 30)) { _ in
-                            diskCard(result)
-                        }
-                        .frame(width: 236)
-                        .frame(maxHeight: .infinity)
-                        statsGrid(result)
-                    }
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 18)
                     banners
                     listPanel
                 }
                 .padding(.horizontal, 26)
+                .padding(.top, 6)
                 .padding(.bottom, showFooter ? 0 : 22)
             }
             if showFooter { footer }
         }
     }
 
-    private var showFooter: Bool { !store.selectableInFilter.isEmpty }
+    /// The overview carries its own main button; category pages have the footer.
+    private var showFooter: Bool { !store.showingOverview && !store.selectableInFilter.isEmpty }
 
     private func topBar(_ result: ScanResult) -> some View {
         HStack(spacing: 10) {
-            if !store.isOverview {
+            if !store.showingOverview {
                 Button { withAnimation(.easeOut(duration: 0.15)) { store.showOverview() } } label: {
                     Label("返回总览", systemImage: "chevron.left")
                 }
                 .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
                 .keyboardShortcut("[", modifiers: .command)
                 .help("回到总览（⌘[）")
+                Text(store.filter.title).font(.system(size: 17, weight: .bold))
             }
-            Text(store.isOverview ? store.scopeTitle : store.filter.title)
-                .font(.system(size: 17, weight: .bold))
-            Text(scanMeta(result))
+            Text(store.showingOverview ? "\(volumeName(result.root))，\(store.scopeTitle)于\(Self.ago(result.scannedAt))" : "\(Self.ago(result.scannedAt))扫描")
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.ink3)
+                .foregroundStyle(Theme.ink2)
                 .lineLimit(1)
             Spacer()
             Button { store.scan() } label: { Label("重新扫描", systemImage: "arrow.clockwise") }
-                .buttonStyle(ToolbarButtonStyle(prominent: true, large: true))
-
+                .buttonStyle(ToolbarButtonStyle(large: true))
                 .help("重新扫描「\(store.scopeTitle)」（⌘R）")
         }
         .disabled(store.isCleaning)
-        .padding(.leading, showSidebar ? 12 : 22)
+        .padding(.leading, showSidebar ? 22 : 22)
         .padding(.trailing, 18)
         .frame(height: 62)
     }
 
-    private func scanMeta(_ result: ScanResult) -> String {
-        return "\(Self.ago(result.scannedAt))扫描"
-    }
-
-    /// Disk card: the ring shows only what is free; name and capacity sit underneath so nothing gets clipped.
-    private func diskCard(_ result: ScanResult) -> some View {
-        let live = volumeCapacity(result.root)
-        let totalBytes = live?.total ?? result.volumeTotalBytes ?? 0
-        let total = Double(max(totalBytes, 1))
-        let free = live?.free ?? result.volumeFreeBytes ?? 0
-        let used = Double(max(totalBytes - free, 0))
-        let low = free < Self.lowSpaceBytes
-        return VStack(spacing: 10) {
-            DiskRing(usedFraction: used / total, low: low, free: ByteFormat.string(free), caption: low ? "剩余空间较少" : "可用")
-                .frame(width: 150, height: 150)
-            VStack(spacing: 2) {
-                Text(volumeName(result.root)).font(.system(size: 13, weight: .semibold)).lineLimit(1)
-                Text("共 \(ByteFormat.string(totalBytes))，已用 \(Int((used / total * 100).rounded()))%")
-                    .font(.system(size: 12)).foregroundStyle(Theme.ink2).lineLimit(1)
-            }
-        }
-        .padding(.vertical, 14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .glass()
-    }
-
-    /// Below this much free space the ring and disk card turn amber. Ratios mislead on big disks.
+    /// Below this much free space the dial and the backdrop turn warm. Ratios mislead on big disks.
     static let lowSpaceBytes: Int64 = 10 * 1_073_741_824
 
-    private func statsGrid(_ result: ScanResult) -> some View {
-        Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-            GridRow {
-                statCard(.caches)
-                statCard(.creative)
-                chatStatCard(result)
-            }
-            GridRow {
-                statCard(.large, unavailable: result.isQuickScan)
-                cleanableSummaryCard.gridCellColumns(2)
-            }
-        }
-    }
+    // MARK: Overview
 
-    private func statCard(_ category: ItemFilter, unavailable: Bool = false) -> some View {
-        // The creative card counts only what can be cleaned there.
-        let items = category == .creative ? store.items(in: category).filter(\.canTrash) : store.items(in: category)
-        let (number, unit) = splitBytes(ScanStore.sum(items))
-        let selected = store.filter == category
-        let detail: String
-        if unavailable {
-            detail = "完整扫描后显示"
-        } else if items.isEmpty {
-            detail = "没有发现"
-        } else if category == .creative {
-            detail = "\(unit) · \(Set(items.compactMap { CreativeApp.of($0)?.id }).count) 个工具"
-        } else {
-            detail = "\(unit) · \(items.count) 项"
-        }
-        return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 18)
-                    Text(category.title)
-                }
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.ink2)
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(unavailable || items.isEmpty ? "—" : number).font(.system(size: 22, weight: .bold)).monospacedDigit()
-                    if !(unavailable || items.isEmpty) {
-                        Text(unit).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+    /// Outcome first (Flighty), one glance at the state (Weather, Activity rings), the one action beside it
+    /// (Things), details on demand (Storage settings): the dial, what cleaning gives you, one button, four platters.
+    private func overviewPage(_ result: ScanResult) -> some View {
+        VStack(spacing: 0) {
+            banners.padding(.horizontal, 40)
+            Spacer(minLength: 6)
+            HStack(alignment: .center, spacing: 48) {
+                VStack(spacing: 10) {
+                    // Free space is read live: results go stale as soon as anything is deleted.
+                    TimelineView(.periodic(from: .now, by: 30)) { _ in spaceDial(result) }
+                        .frame(width: 320, height: 320)
+                    // The coloured ticks are named by the platters below; these two are not.
+                    HStack(spacing: 16) {
+                        legend(Theme.ink2.opacity(0.62), "系统和应用")
+                        legend(Theme.fill(0.16), "可用")
                     }
                 }
-                Text(unavailable || items.isEmpty ? detail : detail.replacingOccurrences(of: unit + " · ", with: ""))
-                    .font(.system(size: 12)).foregroundStyle(Theme.ink2)
+                heroCopy
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 40)
+            Spacer(minLength: 14)
+            platters(result)
+                .padding(.horizontal, 40)
+                .padding(.bottom, 26)
+        }
+    }
+
+    private func legend(_ color: Color, _ title: String) -> some View {
+        HStack(spacing: 6) {
+            Capsule().fill(color).frame(width: 10, height: 4)
+            Text(title).font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
+        }
+    }
+
+    private func spaceDial(_ result: ScanResult) -> some View {
+        let live = volumeCapacity(result.root)
+        let total = live?.total ?? result.volumeTotalBytes ?? 0
+        let free = live?.free ?? result.volumeFreeBytes ?? 0
+        let selected = store.selectedCleanupBytes
+        let cleanable = { (category: ItemFilter) in ScanStore.sum(store.items(in: category).filter(\.canTrash)) }
+        return SpaceDial(total: total, free: free, parts: [
+            .init(bytes: ScanStore.sum(store.items(in: .large)), color: Theme.color(.large)),
+            .init(bytes: result.chatApps.reduce(0) { $0 + ($1.bytes ?? 0) }, color: Theme.color(.chat)),
+            .init(bytes: cleanable(.creative), color: Theme.color(.creative), glows: true),
+            .init(bytes: cleanable(.caches), color: Theme.color(.caches), glows: true)
+        ], after: selected > 0 ? free + selected : nil, low: free < Self.lowSpaceBytes)
+    }
+
+    private var heroCopy: some View {
+        let safe = store.eligibleItems
+        let selected = store.selectedCleanupBytes
+        let count = store.selectedCleanupItems.count
+        return VStack(alignment: .leading, spacing: 0) {
+            if safe.isEmpty {
+                Text("这台 Mac 很干净").font(.system(size: 34, weight: .bold))
+                Text("没有需要清理的缓存。对话、作品和设置本来就不会碰。")
+                    .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
                     .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text("\(safe.count) 处缓存，下次使用会自动重新生成").font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
+                Text("可以放心腾出").font(.system(size: 36, weight: .bold)).padding(.top, 8)
+                Text(ByteFormat.string(selected > 0 ? selected : ScanStore.sum(safe)))
+                    .font(.system(size: 36, weight: .bold)).monospacedDigit().foregroundStyle(Theme.blue)
+                Text("对话、作品和设置一样不碰。放进废纸篓后，随时可以拖回来。")
+                    .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 18) {
+                    Button { store.reviewCleanup() } label: {
+                        if store.isCleaning {
+                            HStack(spacing: 8) {
+                                ProgressView().controlSize(.small).tint(.white)
+                                Text("正在清理 \(store.cleanedCount)/\(count)").monospacedDigit()
+                            }
+                        } else {
+                            Text(selected > 0 ? "清理 \(ByteFormat.string(selected))" : "清理")
+                        }
+                    }
+                    .buttonStyle(HeroButtonStyle())
+                    .disabled(selected == 0 || store.isCleaning)
+                    .keyboardShortcut(.defaultAction)
+                    Button("查看这 \(safe.count) 处 ›") { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(store.mainCleanableCategory) } }
+                        .buttonStyle(.plain)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(Theme.blue)
+                }
+                .padding(.top, 26)
+            }
+        }
+        .frame(maxWidth: 460, alignment: .leading)
+    }
+
+    /// The four categories, coloured like their ticks on the dial.
+    private func platters(_ result: ScanResult) -> some View {
+        let chats = result.chatApps.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
+        let caches = store.items(in: .caches).filter(\.canTrash)
+        let creative = store.items(in: .creative).filter(\.canTrash)
+        let large = store.items(in: .large)
+        let tools = Set(creative.compactMap { CreativeApp.of($0)?.id }).count
+        return HStack(spacing: 14) {
+            platter(.caches, bytes: ScanStore.sum(caches), note: caches.isEmpty ? "没有发现" : "\(caches.count) 处，已选好")
+            platter(.creative, bytes: ScanStore.sum(creative), note: creative.isEmpty ? "没有需要清理的" : "\(tools) 个工具的缓存和日志")
+            platter(.chat, bytes: chats, note: result.chatApps.isEmpty ? "没有发现" : "在微信里清理更安全 ›", warn: chats >= 2_000_000_000)
+            platter(.large, bytes: result.isQuickScan ? nil : ScanStore.sum(large),
+                    note: result.isQuickScan ? "完整扫描后显示" : (large.isEmpty ? "没有发现" : "\(large.count) 个，由你决定"))
+        }
+    }
+
+    private func platter(_ category: ItemFilter, bytes: Int64?, note: String, warn: Bool = false) -> some View {
+        let (number, unit) = splitBytes(bytes ?? 0)
+        return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
+                Text(category.title).font(.system(size: 13)).foregroundStyle(Theme.ink2).padding(.top, 12)
+                HStack(alignment: .firstTextBaseline, spacing: 3) {
+                    Text(bytes == nil || bytes == 0 ? "—" : number).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(warn ? Theme.amber : Theme.ink)
+                    if let bytes, bytes > 0 { Text(unit).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2) }
+                }
+                .padding(.top, 2)
+                Text(note).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).padding(.top, 6)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .glass(highlighted: selected)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .glass(radius: 22)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    /// Third card, same position as in the sidebar. Turns amber over 2 GB; opens the how-to page.
-    private func chatStatCard(_ result: ScanResult) -> some View {
-        let chats = result.chatApps
-        let unreadable = chats.contains { $0.bytes == nil }
-        let total = chats.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
-        let over = chats.contains { ($0.bytes ?? 0) >= 2_000_000_000 }
-        let (number, unit) = splitBytes(total)
-        let selected = store.filter == .chat
-        let detail: String = {
-            if chats.isEmpty { return "没有发现" }
-            if unreadable && total == 0 { return "开启权限后显示 ›" }
-            return over ? "\(unit) · 超过 2 GB ›" : "\(unit) · 不到 2 GB"
-        }()
-        return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(.chat) } } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 8) {
-                    IconTile(symbol: Theme.symbol(.chat), tint: Theme.green, size: 18)
-                    Text(ItemFilter.chat.title)
-                }
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.ink2)
-                HStack(alignment: .firstTextBaseline, spacing: 5) {
-                    Text(chats.isEmpty || (unreadable && total == 0) ? "—" : number)
-                        .font(.system(size: 22, weight: .bold))
-                        .monospacedDigit()
-                        .foregroundStyle(over ? Theme.amber : Theme.ink)
-                    Text(unit).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
-                }
-                Text(detail.replacingOccurrences(of: unit + " · ", with: ""))
-                    .font(.system(size: 12)).foregroundStyle(Theme.ink2)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 13)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(over ? AnyShapeStyle(LinearGradient(colors: [Theme.amber.opacity(selected ? 0.24 : 0.16), Theme.amber.opacity(0.04)], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(Theme.panel))
-            )
-            .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(over ? Theme.amber.opacity(selected ? 0.6 : 0.35) : (selected ? Theme.blue.opacity(0.5) : Theme.line)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    /// What this app itself can free: every cleanable item, across categories.
-    private var cleanableSummaryCard: some View {
-        let (number, unit) = splitBytes(ScanStore.sum(store.eligibleItems))
-        return VStack(alignment: .leading, spacing: 6) {
-            Label("可释放空间", systemImage: "sparkles")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Theme.softInk)
-            HStack(alignment: .firstTextBaseline, spacing: 5) {
-                Text(number).font(.system(size: 22, weight: .bold)).monospacedDigit()
-                Text(unit).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
-            }
-            Text("清空废纸篓后释放")
-                .font(.system(size: 12)).foregroundStyle(Theme.ink2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 13)
-        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(LinearGradient(colors: [Theme.blue.opacity(0.22), Theme.indigo.opacity(0.12)], startPoint: .topLeading, endPoint: .bottomTrailing)))
-        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color(red: 0.55, green: 0.59, blue: 1.0).opacity(0.35)))
     }
 
     @ViewBuilder
@@ -1764,11 +1737,6 @@ struct MainView: View {
     }
 
     // MARK: Helpers
-
-    private func actionHint(_ item: ScanItem) -> String {
-        if CreativeApp.of(item) != nil { return item.canTrash ? "可在此清理" : "只统计，不删除" }
-        return tagText(item)
-    }
 
     private func tagText(_ item: ScanItem) -> String {
         if let reason = store.failureReasons[item.id] { return "没清掉：\(reason)" }
