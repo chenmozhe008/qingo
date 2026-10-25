@@ -196,7 +196,7 @@ struct MainView: View {
                             Circle().stroke(Theme.blue.opacity(0.12), lineWidth: 30)
                             Circle()
                                 .trim(from: 0, to: 0.32)
-                                .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Color(red: 0.39, green: 0.82, blue: 1.0), Theme.blue],
+                                .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Color(red: 0.50, green: 0.84, blue: 0.78), Theme.blue],
                                                         center: .center, startAngle: .degrees(0), endAngle: .degrees(115)),
                                         style: StrokeStyle(lineWidth: 30, lineCap: .round))
                                 .rotationEffect(.degrees(angle))

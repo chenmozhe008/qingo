@@ -362,7 +362,7 @@ struct UninstallView: View {
                 HStack(alignment: .center, spacing: 16) {
                     Image(nsImage: ItemPresentation.icon(forPath: app.appURL.path)).resizable().interpolation(.high).frame(width: 64, height: 64)
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(app.name).font(.system(size: 20, weight: .bold))
+                        Text(app.name).font(.system(size: 20, weight: .bold)).lineLimit(1).minimumScaleFactor(0.7)
                         if let used = ToolText.lastUsed(app.lastUsed) {
                             Text(used).font(.system(size: 12.5)).foregroundStyle(ToolText.isStale(app.lastUsed) ? Theme.amber : Theme.ink2)
                         }
