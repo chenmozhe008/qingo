@@ -4,7 +4,7 @@ import SwiftUI
 
 @MainActor
 final class ScanStore: ObservableObject {
-    @Published var root = FileManager.default.homeDirectoryForCurrentUser
+    @Published var root = AppHome.url
     @Published var result: ScanResult? {
         didSet {
             decisionNotes = Self.decisionNotes(for: result, policy: policy)
@@ -122,6 +122,15 @@ final class ScanStore: ObservableObject {
             aboutTab = AboutTab(rawValue: String(about.drop { $0 != "=" }.dropFirst())) ?? .intro
         }
         if arguments.contains("--scan") { scan() }
+        if arguments.contains("--quick-scan") { scanKnownCaches() }
+        // Demo recordings only (QINGO_HOME set): press 清理 by itself after the given seconds.
+        if AppHome.isDemo, let delay = arguments.first(where: { $0.hasPrefix("--clean-after=") }).flatMap({ Double($0.dropFirst("--clean-after=".count)) }) {
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard let self, self.result != nil else { return }
+                self.reviewCleanup()
+            }
+        }
         // `--switch-appearance=自动|浅色|深色`: switch 3 s after launch, as a click would (checks 深色 → 自动).
         if let raw = arguments.first(where: { $0.hasPrefix("--switch-appearance=") })?.split(separator: "=").last,
            let mode = AppearanceMode.allCases.first(where: { $0.title == raw }) {
@@ -749,6 +758,8 @@ enum LegacyMigration {
     private static let keys = ["appearance", "savedFolders", "scanSizes", "lastFilter", "lastScope", "scanDates"]
 
     static func run() {
+        // A demo starts empty: carrying the old settings over would show this Mac's folders and drives.
+        if AppHome.isDemo { return }
         let defaults = UserDefaults.standard
         if !defaults.bool(forKey: doneKey) {
             defaults.set(true, forKey: doneKey)

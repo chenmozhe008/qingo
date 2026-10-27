@@ -11,7 +11,7 @@ struct MainView: View {
 
     var hasResult: Bool { store.result != nil && !store.isScanning }
     var showSidebar: Bool { !store.isScanning && (store.result != nil || store.hasHistory || store.tool != nil) }
-    var home: URL { FileManager.default.homeDirectoryForCurrentUser }
+    var home: URL { AppHome.url }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -1771,6 +1771,8 @@ struct MainView: View {
     }
 
     private var otherVolumes: [URL] {
+        // A demo never shows the names of drives attached to this Mac.
+        if AppHome.isDemo { return [] }
         let volumes = (try? FileManager.default.contentsOfDirectory(
             at: URL(fileURLWithPath: "/Volumes"),
             includingPropertiesForKeys: [.volumeIsBrowsableKey, .isSymbolicLinkKey],

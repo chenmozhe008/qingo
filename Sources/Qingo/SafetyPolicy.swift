@@ -5,7 +5,7 @@ struct SafetyPolicy: Sendable {
     let protectedRoots: [URL]
     let extraProtectedRoots: [URL]
 
-    init(home: URL = FileManager.default.homeDirectoryForCurrentUser, extraProtected: [URL] = []) {
+    init(home: URL = AppHome.url, extraProtected: [URL] = []) {
         let canonicalHome = CanonicalPath.url(home)
         self.home = canonicalHome
         self.extraProtectedRoots = extraProtected.map(CanonicalPath.url)

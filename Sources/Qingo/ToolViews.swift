@@ -181,7 +181,7 @@ struct TrashConfirmSheet: View {
 
 enum ToolText {
     static func short(_ url: URL) -> String {
-        url.path.replacingOccurrences(of: FileManager.default.homeDirectoryForCurrentUser.path, with: "~")
+        url.path.replacingOccurrences(of: AppHome.url.path, with: "~")
     }
 
     /// "今天打开 / 昨天打开 / 3 天前打开 / 5 个月未使用 / 超过 1 年未使用"

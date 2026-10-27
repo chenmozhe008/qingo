@@ -88,6 +88,8 @@
 - 截图只截本 App 窗口：按 PID 取最大窗口 ID → `screencapture -l <id>`（不受其他窗口遮挡）
 - 切分类：`defaults write io.github.chenmozhe008.qingo lastFilter "<分类名>"` 后重开 App；**不要用模拟鼠标点击**，用户可能在用电脑（2026-10-20 点到过微信）
 - 启动参数：`open -g "dist/小清.app" --args --scan`（启动即重新扫描）、`--show-about` / `--show-about=反馈`（直接打开「关于」某一页）、`--tool=uninstall`（可加 `--select-app=<App 名>` 或 `--orphans`）/ `--tool=dev`（可加 `--dev-scan`）直接打开工具页；`--window-size=960x640` 启动时把窗口设成指定大小（截窄窗口用，不依赖辅助功能权限）；`--switch-appearance=自动|浅色|深色` 启动 3 秒后切换外观（验证切换，和点按钮走同一条路）；`--snapshot=<file.png>` 启动 5 秒后把窗口自己画成 PNG（**屏幕锁着时 screencapture 只出黑图，用这个验版面**；玻璃卡片画不出来、带动画的页面可能缺块，只看布局）；`--category=<分类 rawValue>`（如 `大文件与工程`、`剪辑与设计软件`）直接打开分类页；`--creative-app=<工具 id>`（如 workbuddy）打开创作工具页时滚到该工具
+- **演示 / 截图用假数据（2026-10-27 做推荐视频时加）**：环境变量 `QINGO_HOME=<文件夹>` 把扫描的个人文件夹换成准备好的演示文件夹（`AppHome.url`）；演示模式下不迁移旧设置、不列外接磁盘、不读本机装了哪些 App（`AppHome.isDemo`），**录屏绝不能露出用户真实的项目名、硬盘名、文件名**（第一次拍就露了移动硬盘名）。配合 `QINGO_RESULTS_DIR` 和改了 bundle id 的副本（`io.github.chenmozhe008.qingo.demo`，设置不碰正式版）。`--quick-scan` 启动即快速扫描；`--clean-after=<秒>` 只在演示模式下生效，到时自动点「清理」（会进真实废纸篓，拍完挪回演示文件夹）。演示文件用 `cp -c` 克隆同一个大文件，显示几十 GB、实际只占约 1.5 GB（小清按已分配空间算，空洞文件显示 0）。做视频的脚本和成片在 `output/promo/`
+- **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，临时签名（证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases。README 写了首次打开要去「隐私与安全性 → 仍要打开」
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标

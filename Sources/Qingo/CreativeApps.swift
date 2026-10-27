@@ -205,6 +205,8 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
 
     private struct InstalledApp: Sendable { let name: String; let id: String }
     private static let installedApps: [InstalledApp] = {
+        // A demo shows only its prepared data, never which apps this Mac has.
+        if AppHome.isDemo { return [] }
         let roots = [URL(fileURLWithPath: "/Applications"), FileManager.default.homeDirectoryForCurrentUser.appending(path: "Applications")]
         var applications: [URL] = []
         for root in roots {
@@ -372,7 +374,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
         let path = item.url.path
         if item.name == "Render Files", path.contains(".fcpbundle/") { return .finalCut }
         if item.name == "CacheClip" { return .davinci }
-        let home = FileManager.default.homeDirectoryForCurrentUser.standardizedFileURL.path
+        let home = AppHome.url.standardizedFileURL.path
         if path.hasPrefix(home + "/"), let match = owner(relativePath: String(path.dropFirst(home.count + 1))) { return match.app }
         // Scans of a custom home (tests, other volumes): fall back to the first Library/ or dot-folder marker.
         for marker in ["/Library/", "/.cache/", "/.local/share/", "/Movies/", "/Pictures/", "/Documents/"] {

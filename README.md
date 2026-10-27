@@ -54,20 +54,27 @@ AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文
 - **卸载应用**：将应用及其在 `~/Library` 中的支持文件、缓存、偏好设置、窗口状态和后台程序一并移到废纸篓，可撤销。仅按 bundle id 和应用名在固定目录中精确匹配，包括该应用的对话、模型和设置；不读取、不删除沙盒数据（Containers）。另提供「已删除应用的残留」清理，匹配规则严格，默认全选。
 - **开发项目**：在代码文件夹（默认 `~/Coding`）中按项目列出构建缓存，清理后会自动重建。不影响代码、依赖和虚拟环境。
 
-## 安装与构建
+## 下载安装
 
 要求：macOS 14 Sonoma 及以上，Apple 芯片（M1 及更新）。
 
-目前没有预编译安装包，需要自己构建（需要 Xcode 或 Swift 命令行工具）：
+1. 在 [Releases](https://github.com/chenmozhe008/qingo/releases/latest) 下载 `Qingo-<版本>.zip`，双击解压，将「小清」拖到「应用程序」文件夹。
+2. 首次打开时，系统会提示无法验证开发者（小清未经 Apple 公证）。打开「系统设置 → 隐私与安全性」，在页面下方点击「仍要打开」，再确认一次即可。之后正常打开。
+3. 如需扫描微信占用和更多缓存，在「系统设置 → 隐私与安全性 → 完全磁盘访问」中开启「小清」。
+
+## 从源代码构建
+
+需要 Xcode 或 Swift 命令行工具：
 
 ```sh
 git clone https://github.com/chenmozhe008/qingo.git
 cd qingo
 ./script/build_and_run.sh --package   # 生成 dist/小清.app
 ./script/test.sh                      # 运行测试
+./script/package_release.sh           # 生成发布用的 tmp/release/Qingo-<版本>.zip
 ```
 
-本机有 Apple Development 证书时用它签名，没有时自动使用临时签名（ad-hoc），只能在自己的 Mac 上运行。要读取微信占用等受保护目录，需要在「系统设置 → 隐私与安全性 → 完全磁盘访问」里授权本应用。
+本机有 Apple Development 证书时用它签名，没有时自动使用临时签名（ad-hoc）。发布包统一使用临时签名并去除调试符号，不含构建机器的信息。
 
 ## 加一个新工具
 
