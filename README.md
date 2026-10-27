@@ -6,7 +6,7 @@
 
 **Qingo**，AI 时代的 Mac 清理工具
 
-认得 Cursor、Claude Code、Codex、剪映、达芬奇……缓存一键清理，项目、对话和模型不受影响。
+支持剪映、达芬奇、Adobe 等剪辑软件，以及 Cursor、Claude Code、Codex 等 AI 工具的缓存清理。一键清理，项目、素材和对话不受影响。
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
