@@ -6,7 +6,7 @@
 
 **Qingo**，AI 时代的 Mac 清理工具
 
-支持剪映、达芬奇、Adobe 等剪辑软件，以及 Cursor、Claude Code、Codex 等 AI 工具的缓存清理。一键清理，项目、素材和对话不受影响。
+面向影视创作者与开发者的 Mac 清理工具。识别剪映、达芬奇、Adobe 系列等剪辑软件，以及 Codex、Claude Code、Cursor 等 AI 工具的缓存，一键清理，不影响项目、素材与对话。
 
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
@@ -21,7 +21,7 @@ AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文
 
 原生 SwiftUI 应用，支持浅色 / 深色 / 自动外观，macOS 26 上使用系统液态玻璃效果。
 
-## 它的优势
+## 主要特点
 
 - **识别 AI Coding 工具**：支持 Cursor、Claude Code、Codex、WorkBuddy、CodeBuddy、Trae、Qoder 等主流 AI Coding 与智能体工具，以及 Ollama、LM Studio 等本地模型。清理运行时、下载包、界面缓存和日志；保留对话记录、工作区、扩展和模型。
 - **识别影视创作软件**：支持剪映、达芬奇、After Effects、Premiere、Final Cut、Blender 等剪辑和设计软件。直接清理剪映缓存、AE 磁盘缓存和 Adobe 媒体缓存；达芬奇、Final Cut 的渲染缓存提供软件内清理路径；保留项目、草稿和素材。
