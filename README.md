@@ -32,11 +32,11 @@ AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文
 
 ## 截图
 
-| 创作与 AI 工具：按工具区分缓存和作品 | 微信与企业微信：显示占用和微信内清理路径 |
+| 创作与 AI 工具：按工具区分缓存和作品 | 微信与企业微信：显示占用和微信内的清理路径 |
 | --- | --- |
 | <img src="docs/images/tools.png" alt="创作与 AI 工具"> | <img src="docs/images/wechat.png" alt="微信与企业微信"> |
-| **扫描中：实时显示发现的内容** | **深色模式** |
-| <img src="docs/images/scan.png" alt="扫描中"> | <img src="docs/images/overview-dark.png" alt="深色模式"> |
+| **开发项目：按项目列出构建缓存** | **深色模式** |
+| <img src="docs/images/dev.png" alt="开发项目"> | <img src="docs/images/overview-dark.png" alt="深色模式"> |
 
 <p align="center"><img src="docs/images/about.png" alt="关于" width="720"></p>
 
@@ -56,6 +56,19 @@ AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文
 - **卸载应用**：将应用及其在 `~/Library` 中的支持文件、缓存、偏好设置、窗口状态和后台程序一并移到废纸篓，可撤销。仅按 bundle id 和应用名在固定目录中精确匹配，包括该应用的对话、模型和设置；不读取、不删除沙盒数据（Containers）。另提供「已删除应用的残留」清理，匹配规则严格，默认全选。
 - **开发项目**：在代码文件夹（默认 `~/Coding`）中按项目列出构建缓存，清理后会自动重建。不影响代码、依赖和虚拟环境。
 
+## 支持的工具
+
+| 类别 | 工具 |
+| --- | --- |
+| 剪辑与调色 | After Effects、Premiere Pro、Media Encoder、Audition、Adobe 媒体缓存、Final Cut Pro、DaVinci Resolve、剪映专业版、CapCut、万兴喵影 Filmora、OBS Studio、Topaz Video |
+| 设计与三维 | Photoshop、Illustrator、Lightroom、Figma、Sketch、MasterGo、即时设计、Canva 可画、Blender、Cinema 4D、Houdini、Unreal Engine、Unity |
+| AI 生图与视频 | ComfyUI、DiffusionBee、Stable Diffusion WebUI、Fooocus、Pinokio、即梦、MiniMax Design、ArtCraft、AIGC 创作辅助工具 |
+| AI 助手 | ChatGPT、Claude、Perplexity、豆包、Kimi、通义千问、腾讯元宝、Cherry Studio、Chatbox |
+| AI Coding 与智能体 | Cursor、Windsurf、Trae、Qoder、CodeBuddy、WorkBuddy、Kiro、VS Code、Zed、通义灵码、文心快码、Claude Code、Codex、Gemini CLI、OpenCode、OpenClaw |
+| 本地模型 | Ollama、LM Studio、Hugging Face 模型、Jan、GPT4All、PyTorch 模型 |
+
+各工具可清理的目录和受保护的目录见 [`Sources/Qingo/CreativeApps.swift`](Sources/Qingo/CreativeApps.swift)。此外，「可清理缓存」还涵盖浏览器、办公软件等常用应用的缓存，以及 npm、pip、uv 等包管理器的缓存。
+
 ## 下载安装
 
 要求：macOS 14 Sonoma 及以上，Apple 芯片（M1 及更新）。
@@ -63,6 +76,29 @@ AI 工具和创作软件会在 Mac 上留下大量运行时、缓存和模型文
 1. 在 [Releases](https://github.com/chenmozhe008/qingo/releases/latest) 下载 `Qingo-<版本>.zip`，双击解压，将「小清」拖到「应用程序」文件夹。
 2. 首次打开时，系统会提示无法验证开发者（小清未经 Apple 公证）。打开「系统设置 → 隐私与安全性」，在页面下方点击「仍要打开」，再确认一次即可。之后正常打开。
 3. 如需扫描微信占用和更多缓存，在「系统设置 → 隐私与安全性 → 完全磁盘访问」中开启「小清」。
+
+## 常见问题
+
+**清理后，可用空间为什么没有变化？**
+小清只将文件移到废纸篓，不做永久删除。清空废纸篓后，空间才会释放。
+
+**清理错了，如何恢复？**
+清理完成后，点击结果条中的「撤销」，本次清理的文件会放回原位置（重新扫描前有效）。之后也可以在废纸篓中选中文件，右键选择「放回原处」。
+
+**首次打开时，为什么提示「无法验证开发者」？**
+小清未经 Apple 公证。代码完全开源，可自行审阅，或从源代码构建。按「下载安装」第 2 步操作即可打开。
+
+**必须开启「完全磁盘访问」吗？**
+不是必需的。未开启时，小清仍可扫描常见缓存和大部分工具目录；微信、企业微信等受系统保护的目录无法读取，不计入结果。开启后重新扫描即可显示。
+
+**与通用清理工具有什么区别？**
+通用清理工具通常按类别汇总（应用缓存、系统垃圾等），难以区分同一工具目录中哪些是缓存、哪些是对话和作品。小清按工具逐一识别，只列出可自动重建的缓存，逐项注明名称、位置和可清理的原因；清理只移到废纸篓，可撤销。
+
+**小清会联网或上传数据吗？**
+不会。小清不包含任何网络请求代码，扫描结果仅保存在本机。
+
+**如何卸载小清？**
+退出小清，将「应用程序」中的「小清」移到废纸篓。如需同时移除扫描记录和设置，再删除 `~/Library/Application Support/Qingo` 文件夹和 `~/Library/Preferences/io.github.chenmozhe008.qingo.plist`。
 
 ## 从源代码构建
 
