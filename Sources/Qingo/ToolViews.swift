@@ -58,10 +58,10 @@ struct ToolResultBanner: View {
                         Text("清空废纸篓后释放空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
                     }
                     Spacer()
-                    if canUndo { Button("撤销", action: undo).buttonStyle(GhostButtonStyle()).help("恢复刚才清理的项目") }
+                    if canUndo { Button("撤销", action: undo).buttonStyle(ResultActionButtonStyle()).help("恢复刚才清理的项目") }
                     if report.movedCount > 0 {
                         Button("打开废纸篓") { NSWorkspace.shared.open(FileManager.default.homeDirectoryForCurrentUser.appending(path: ".Trash")) }
-                            .buttonStyle(GhostButtonStyle())
+                            .buttonStyle(ResultActionButtonStyle())
                     }
                     Button(action: close) {
                         Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
@@ -261,19 +261,21 @@ struct UninstallView: View {
 
     // MARK: List
 
+    /// Leftovers sit in their own card above the list, so the list ends cleanly instead of being cut by a pinned row.
     private var appList: some View {
-        VStack(spacing: 0) {
+        VStack(spacing: 10) {
+            orphanRow
+                .glass(radius: 16)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(store.visibleApps) { app in appRow(app) }
                 }
             }
-            Rectangle().fill(Theme.line).frame(height: 1)
-            orphanRow
+            .frame(maxHeight: .infinity)
+            .glass()
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         }
-        .frame(maxHeight: .infinity)
-        .glass()
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     private func appRow(_ app: InstalledApp) -> some View {
@@ -312,7 +314,7 @@ struct UninstallView: View {
                 IconTile(symbol: "trash.slash.fill", tint: Theme.amber, size: 32)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("已删除应用的残留").font(.system(size: 14, weight: .semibold))
-                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项，对应的应用已删除")
+                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项")
                         .font(.system(size: 12)).foregroundStyle(Theme.ink3)
                 }
                 Spacer(minLength: 8)
@@ -322,8 +324,8 @@ struct UninstallView: View {
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .background(store.showOrphans ? Theme.amber.opacity(0.1) : .clear)
+            .padding(.vertical, 10)
+            .background(store.showOrphans ? Theme.amber.opacity(0.12) : .clear)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -582,10 +584,11 @@ struct UninstallView: View {
 struct DevProjectsView: View {
     @ObservedObject var store: DevStore
     let appearance: AppearanceMode
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolTopBar(title: "开发项目", meta: meta) {
+            ToolTopBar(title: "开发缓存", meta: meta) {
                 Button("更换文件夹…") { store.chooseRoot() }
                     .buttonStyle(ToolbarButtonStyle(large: true))
                     .disabled(store.isScanning || store.isCleaning)
@@ -594,13 +597,7 @@ struct DevProjectsView: View {
                     .disabled(store.isScanning || store.isCleaning)
             }
             if store.isScanning {
-                VStack(spacing: 14) {
-                    ProgressView().controlSize(.large)
-                    Text("正在查找项目").font(.system(size: 18, weight: .semibold))
-                    Text("已检查 \(store.scannedCount.formatted()) 项").font(.system(size: 13)).foregroundStyle(Theme.ink2).monospacedDigit()
-                    Button("停止扫描") { store.cancelScan() }.buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                scanning
             } else if let result = store.result {
                 content(result)
             } else {
@@ -618,6 +615,157 @@ struct DevProjectsView: View {
             }
         }
         .sheet(isPresented: $store.showConfirm) { confirmSheet }
+    }
+
+    /// Same shape as the main scan: a turning ring with the count, where it is, progress, and projects as they turn up.
+    private var scanning: some View {
+        GeometryReader { proxy in
+            let compact = proxy.size.width < 820
+            let ring: CGFloat = compact ? 220 : 270
+            HStack(spacing: compact ? 28 : 44) {
+                VStack(spacing: 0) {
+                    ZStack {
+                        TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                            let time = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
+                            ZStack {
+                                Circle().stroke(Theme.indigo.opacity(0.12), lineWidth: 26)
+                                Circle()
+                                    .trim(from: 0, to: 0.32)
+                                    .stroke(AngularGradient(colors: [Theme.indigo.opacity(0), Theme.indigo.opacity(0.55), Theme.indigo],
+                                                            center: .center, startAngle: .degrees(0), endAngle: .degrees(115)),
+                                            style: StrokeStyle(lineWidth: 26, lineCap: .round))
+                                    .rotationEffect(.degrees(time * 200))
+                                    .shadow(color: Theme.indigo.opacity(0.3), radius: 8)
+                                // A thinner inner arc turning the other way.
+                                Circle()
+                                    .trim(from: 0, to: 0.18)
+                                    .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Theme.blue],
+                                                            center: .center, startAngle: .degrees(0), endAngle: .degrees(65)),
+                                            style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                                    .rotationEffect(.degrees(-time * 120))
+                                    .padding(30)
+                            }
+                            .padding(13)
+                        }
+                        VStack(spacing: 4) {
+                            Text(store.scannedCount.formatted())
+                                .font(.system(size: compact ? 28 : 32, weight: .bold, design: .rounded))
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                            Text("已检查文件").font(.system(size: 13)).foregroundStyle(Theme.ink2)
+                        }
+                    }
+                    .frame(width: ring, height: ring)
+                    Text("正在查找构建缓存").font(.system(size: 22, weight: .semibold)).padding(.top, 22)
+                    Text(ToolText.short(URL(fileURLWithPath: store.currentFolder)))
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
+                        .lineLimit(1).truncationMode(.middle).frame(maxWidth: 300).padding(.top, 8)
+                    ScanProgressBar(fraction: store.estimatedProgress,
+                                    fill: LinearGradient(colors: [Theme.indigo, Theme.blue], startPoint: .leading, endPoint: .trailing),
+                                    glow: Theme.indigo)
+                        .frame(width: compact ? 220 : 270, height: 6)
+                        .padding(.top, 18)
+                    Button { store.cancelScan() } label: { Label("停止扫描", systemImage: "stop.circle.fill") }
+                        .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
+                        .keyboardShortcut(.cancelAction).padding(.top, 22)
+                }
+                .frame(width: compact ? 250 : 310)
+                liveFeed
+            }
+            .padding(.horizontal, compact ? 26 : 40)
+            .padding(.top, 8)
+            .padding(.bottom, 28)
+        }
+    }
+
+    private struct LiveProject: Identifiable {
+        let id: URL
+        var items: [ScanItem]
+        var bytes: Int64 { ScanStore.sum(items) }
+    }
+
+    /// Finds grouped by project, the most recently found first; small ones are left out as in the result.
+    private var liveProjects: [LiveProject] {
+        var order: [URL] = []
+        var byProject: [URL: [ScanItem]] = [:]
+        for found in store.liveFound {
+            order.removeAll { $0 == found.project }
+            order.append(found.project)
+            byProject[found.project, default: []].append(found.item)
+        }
+        return order.reversed().map { LiveProject(id: $0, items: byProject[$0]!) }.filter { $0.bytes >= DevScanner.minProjectBytes }
+    }
+
+    private var liveFeed: some View {
+        let projects = liveProjects
+        let total = ScanStore.sum(projects.flatMap(\.items))
+        return VStack(alignment: .leading, spacing: 10) {
+            Text("已发现的项目")
+                .font(.system(size: 12.5)).foregroundStyle(Theme.ink3).padding(.horizontal, 4)
+            VStack(spacing: 0) {
+                if projects.isEmpty {
+                    VStack(spacing: 10) {
+                        Image(systemName: "folder.badge.gearshape").font(.system(size: 28)).foregroundStyle(Theme.ink3)
+                        Text("找到的项目将显示在此处").font(.system(size: 13)).foregroundStyle(Theme.ink3)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ForEach(projects.prefix(7)) { project in
+                        liveRow(project)
+                            .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity), removal: .opacity))
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .animation(.easeOut(duration: 0.35), value: store.liveFound.count)
+            .glass()
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, Theme.base.opacity(0.85)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 70)
+                    .allowsHitTesting(false)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            HStack(spacing: 10) {
+                liveTotal("项目", symbol: "folder.fill", value: "\(projects.count) 个")
+                liveTotal("构建缓存", symbol: "hammer.fill", value: ByteFormat.string(total))
+            }
+        }
+    }
+
+    private func liveRow(_ project: LiveProject) -> some View {
+        var kinds: [String] = []
+        for item in project.items.sorted(by: { $0.bytes > $1.bytes }) where !kinds.contains(artifactTitle(item)) {
+            kinds.append(artifactTitle(item))
+        }
+        return HStack(spacing: 12) {
+            IconTile(symbol: "chevron.left.forwardslash.chevron.right", tint: Theme.indigo, size: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(project.id.lastPathComponent).font(.system(size: 14, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                Text(kinds.joined(separator: "、")).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1)
+            }
+            Spacer(minLength: 10)
+            Text(ByteFormat.string(project.bytes)).font(.system(size: 14, weight: .medium)).monospacedDigit()
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 11)
+        .overlay(alignment: .bottom) { Rectangle().fill(Theme.line).frame(height: 1) }
+    }
+
+    private func liveTotal(_ title: String, symbol: String, value: String) -> some View {
+        HStack(spacing: 12) {
+            IconTile(symbol: symbol, tint: Theme.indigo, size: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 12)).foregroundStyle(Theme.ink2)
+                Text(value).font(.system(size: 19, weight: .semibold)).monospacedDigit()
+                    .contentTransition(.numericText())
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
+        .glass(radius: 18)
     }
 
     private var meta: String {

@@ -94,7 +94,7 @@ struct Backdrop: View {
                              points: [[0, 0], [0.5, 0], [1, 0], [0, 0.5], [0.55, 0.45], [1, 0.5], [0, 1], [0.5, 1], [1, 1]],
                              colors: (scheme == .dark ? (warm ? Self.darkWarm : Self.dark) : (warm ? Self.lightWarm : Self.light))
                                 .map { Color(red: $0[0], green: $0[1], blue: $0[2]) })
-                    .opacity(0.92)
+                    .opacity(0.58)
             } else {
                 Theme.base.opacity(0.9)
             }
@@ -174,6 +174,19 @@ struct GhostButtonStyle: ButtonStyle {
     }
 }
 
+/// Actions on cleanup results remain distinct from secondary controls.
+struct ResultActionButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(Theme.blue)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.blue.opacity(configuration.isPressed ? 0.23 : 0.12)))
+            .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(Theme.blue.opacity(0.35)))
+    }
+}
+
 struct LinkButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -197,6 +210,33 @@ struct GlowBar: View {
                 Capsule().fill(fill)
                     .frame(width: max(3, proxy.size.width * min(max(fraction, 0), 1)))
                     .shadow(color: glow.opacity(0.55), radius: 4)
+            }
+        }
+    }
+}
+
+/// Scan progress: filled to the estimate when one exists, otherwise a band sweeping across.
+struct ScanProgressBar: View {
+    let fraction: Double?
+    var fill: LinearGradient = Theme.accent
+    var glow: Color = Theme.cyan
+
+    var body: some View {
+        if let fraction {
+            GlowBar(fraction: fraction, fill: fill, glow: glow)
+        } else {
+            TimelineView(.animation) { context in
+                GeometryReader { proxy in
+                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(Theme.fill(0.08))
+                        Capsule().fill(fill)
+                            .frame(width: proxy.size.width * 0.3)
+                            .offset(x: proxy.size.width * (phase * 1.3 - 0.3))
+                            .shadow(color: glow.opacity(0.6), radius: 4)
+                    }
+                    .clipShape(Capsule())
+                }
             }
         }
     }
@@ -294,7 +334,9 @@ struct IconTile: View {
                 RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
                     .strokeBorder(LinearGradient(colors: [Color.white.opacity(0.45), .clear], startPoint: .top, endPoint: .bottom), lineWidth: 0.8)
             )
-            .overlay(Image(systemName: symbol).font(.system(size: size * 0.5, weight: .bold)).foregroundStyle(.white))
+            // Every glyph fitted into the same box: a wide bubble and a thin wand read as the same size.
+            .overlay(Image(systemName: symbol).resizable().scaledToFit().fontWeight(.bold).foregroundStyle(.white)
+                .frame(width: size * 0.52, height: size * 0.52))
             .frame(width: size, height: size)
     }
 }
@@ -345,6 +387,31 @@ struct FlowLayout: Layout {
 /// How much room is left, at a glance: one thick ring like the Activity rings, the coloured arc is what is used
 /// and the gap is what is free. Blue while there is room, orange below 10 GB. "Who took the space" is the
 /// platters' job, so the ring needs no legend (用户选定方案 ①，2026-10-25).
+/// A size as a large rounded figure with a smaller unit beside it: "38.04 GB".
+struct BigBytes: View {
+    let bytes: Int64
+    let size: CGFloat
+    var color: Color = Theme.ink
+
+    var body: some View {
+        let text = ByteFormat.string(bytes)
+        let space = text.range(of: " ", options: .backwards)
+        HStack(alignment: .firstTextBaseline, spacing: size * 0.08) {
+            Text(space.map { String(text[..<$0.lowerBound]) } ?? text)
+                .font(.system(size: size, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(color)
+            if let space {
+                Text(String(text[space.upperBound...]))
+                    .font(.system(size: size * 0.38, weight: .semibold, design: .rounded))
+                    .foregroundStyle(color == Theme.ink ? Theme.ink2 : color)
+            }
+        }
+        .lineLimit(1)
+        .minimumScaleFactor(0.5)
+    }
+}
+
 struct SpaceRing: View {
     let total: Int64
     let free: Int64
@@ -368,17 +435,16 @@ struct SpaceRing: View {
                             style: StrokeStyle(lineWidth: line, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .shadow(color: colors[1].opacity(0.28), radius: size * 0.03, y: size * 0.01)
-                VStack(spacing: size * 0.012) {
-                    Text("现在可用").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.ink2)
-                    Text(ByteFormat.string(free))
-                        .font(.system(size: size * 0.16, weight: .light, design: .rounded))
-                        .monospacedDigit()
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.5)
-                        .foregroundStyle(low ? Theme.amber : Theme.ink)
+                // Label, figure with a smaller unit, and the capacity in a quiet capsule.
+                VStack(spacing: size * 0.02) {
+                    Text("现在可用").font(.system(size: 12.5, weight: .semibold)).tracking(1).foregroundStyle(Theme.ink3)
+                    BigBytes(bytes: free, size: size * 0.17, color: low ? Theme.amber : Theme.ink)
                     Text(low ? "剩余空间较少" : "共 \(ByteFormat.string(total))")
-                        .font(.system(size: 13.5, weight: low ? .medium : .regular))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(low ? Theme.amber : Theme.ink2)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(Capsule().fill(low ? Theme.amber.opacity(0.14) : Theme.fill(0.06)))
                 }
                 .padding(.horizontal, line + size * 0.08)
             }

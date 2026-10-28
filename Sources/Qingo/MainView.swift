@@ -223,7 +223,7 @@ struct MainView: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: 360)
                     .padding(.top, 8)
-                scanProgressBar
+                ScanProgressBar(fraction: store.estimatedProgress)
                     .frame(width: 300, height: 6)
                     .padding(.top, 18)
                 Button { store.cancelScan() } label: { Label("停止扫描", systemImage: "stop.circle.fill") }
@@ -237,27 +237,6 @@ struct MainView: View {
         .padding(.horizontal, 56)
         .padding(.top, 70)
         .padding(.bottom, 44)
-    }
-
-    @ViewBuilder
-    private var scanProgressBar: some View {
-        if let estimate = store.estimatedProgress {
-            GlowBar(fraction: estimate)
-        } else {
-            TimelineView(.animation) { context in
-                GeometryReader { proxy in
-                    let phase = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
-                    ZStack(alignment: .leading) {
-                        Capsule().fill(Theme.fill(0.08))
-                        Capsule().fill(Theme.accent)
-                            .frame(width: proxy.size.width * 0.3)
-                            .offset(x: proxy.size.width * (phase * 1.3 - 0.3))
-                            .shadow(color: Theme.cyan.opacity(0.6), radius: 4)
-                    }
-                    .clipShape(Capsule())
-                }
-            }
-        }
     }
 
     private var liveFeed: some View {
@@ -360,7 +339,7 @@ struct MainView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
-                    if store.result != nil { overviewRow }
+                    overviewRow
                     sectionHeader("扫描位置")
                     locationRow("快速扫描", icon: "bolt.fill", url: home, quick: true)
                     locationRow("完整扫描", icon: "internaldrive.fill", url: home, quick: false)
@@ -377,8 +356,8 @@ struct MainView: View {
                     addFolderRow
 
                     sectionHeader("工具").padding(.top, 12)
+                    toolRow("开发缓存", icon: "hammer.fill", tint: Theme.indigo, page: .dev)
                     toolRow("卸载应用", icon: "trash.fill", tint: Theme.orange, page: .uninstall)
-                    toolRow("开发项目", icon: "hammer.fill", tint: Theme.indigo, page: .dev)
 
                     if store.result != nil {
                         sectionHeader("分类").padding(.top, 12)
@@ -447,7 +426,7 @@ struct MainView: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(mode == .system ? "白天使用浅色，夜间使用深色（7:00–19:00 为白天）；系统外观为「自动」时跟随系统" : "外观：\(mode.rawValue)")
+                .help(mode == .system ? "跟随 macOS 外观设置" : "外观：\(mode.rawValue)")
             }
         }
         .padding(2)
@@ -478,7 +457,7 @@ struct MainView: View {
 
     private var overviewRow: some View {
         let active = store.showingOverview && store.tool == nil
-        return Button { withAnimation(.easeOut(duration: 0.15)) { store.showOverview() } } label: {
+        return Button { withAnimation(.easeOut(duration: 0.15)) { store.goToOverview() } } label: {
             HStack(spacing: 10) {
                 IconTile(symbol: "gauge.with.dots.needle.67percent", tint: Theme.blue, size: 24)
                 Text("总览").font(.system(size: 14, weight: active ? .semibold : .regular))
@@ -532,7 +511,9 @@ struct MainView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 6)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .strokeBorder(active ? Theme.blue.opacity(0.55) : .clear, lineWidth: 1.2))
+                .fill(active && store.showingScanDetail ? Theme.selection : .clear))
+            .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .strokeBorder(active && !store.showingScanDetail ? Theme.blue.opacity(0.55) : .clear, lineWidth: 1.2))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -633,6 +614,8 @@ struct MainView: View {
             topBar(result)
             if store.showingOverview {
                 overviewPage(result)
+            } else if store.showingScanDetail {
+                scanDetailPage(result)
             } else if store.filter == .creative {
                 creativeView(result)
             } else if store.filter == .chat {
@@ -770,26 +753,23 @@ struct MainView: View {
         return SpaceRing(total: live?.total ?? result.volumeTotalBytes ?? 0, free: free, low: free < Self.lowSpaceBytes)
     }
 
+    /// The outcome as a figure: what can be cleaned, how sure that is, and the one button.
     private func heroCopy(compact: Bool) -> some View {
         let safe = store.eligibleItems
-        let titleSize: CGFloat = compact ? 28 : 36
         let actions = compact ? AnyLayout(VStackLayout(alignment: .leading, spacing: 14)) : AnyLayout(HStackLayout(spacing: 18))
         let selected = store.selectedCleanupBytes
-        let count = store.selectedCleanupItems.count
         return VStack(alignment: .leading, spacing: 0) {
+            Text("可清理缓存").font(.system(size: 13, weight: .semibold)).tracking(1).foregroundStyle(Theme.blue)
             if safe.isEmpty {
-                Text("没有可清理的缓存").font(.system(size: titleSize, weight: .bold))
-                Text("缓存会随使用重新生成，可稍后再次扫描。")
-                    .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text("暂无可清理的缓存").font(.system(size: compact ? 26 : 32, weight: .bold)).padding(.top, 8)
             } else {
-                Text("\(safe.count) 项缓存，均可自动重建").font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
-                Text("可清理").font(.system(size: titleSize, weight: .bold)).lineLimit(1).padding(.top, 8)
-                Text(ByteFormat.string(selected > 0 ? selected : ScanStore.sum(safe)))
-                    .font(.system(size: titleSize, weight: .bold)).monospacedDigit().lineLimit(1).foregroundStyle(Theme.blue)
-                Text("仅清理可自动重建的缓存，不影响文稿、对话和设置。文件将移到废纸篓，可随时恢复。")
-                    .font(.system(size: 14.5)).foregroundStyle(Theme.ink2).padding(.top, 12)
-                    .fixedSize(horizontal: false, vertical: true)
+                BigBytes(bytes: selected > 0 ? selected : ScanStore.sum(safe), size: compact ? 46 : 62).padding(.top, 4)
+                Text("\(safe.count) 项，均可自动重建").font(.system(size: 15, weight: .medium)).padding(.top, 6)
+            }
+            Text(safe.isEmpty ? "缓存会随使用重新生成，可稍后再次扫描。" : "移到废纸篓，可随时恢复。不影响文稿、对话和设置。")
+                .font(.system(size: 13)).foregroundStyle(Theme.ink2).padding(.top, 4)
+                .fixedSize(horizontal: false, vertical: true)
+            if !safe.isEmpty {
                 actions {
                     Button { store.reviewCleanup() } label: {
                         if store.isCleaning {
@@ -809,51 +789,167 @@ struct MainView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundStyle(Theme.blue)
                 }
-                .padding(.top, compact ? 20 : 26)
+                .padding(.top, compact ? 18 : 24)
             }
         }
         .frame(maxWidth: 460, alignment: .leading)
     }
 
-    /// The four categories, coloured like their ticks on the dial.
+    /// The whole Mac, one line each: this scan's categories, large files from the last full scan, and the two tools.
     private func platters(_ result: ScanResult, compact: Bool) -> some View {
         let chats = result.chatApps.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) }
-        let caches = store.items(in: .caches).filter(\.canTrash)
-        let creative = store.items(in: .creative).filter(\.canTrash)
-        let large = store.items(in: .large)
-        let tools = Set(creative.compactMap { CreativeApp.of($0)?.id }).count
-        let grid = compact ? [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
-                           : Array(repeating: GridItem(.flexible(), spacing: 14), count: 4)
-        return LazyVGrid(columns: grid, spacing: 14) {
-            platter(.caches, bytes: ScanStore.sum(caches), note: caches.isEmpty ? "未发现" : "\(caches.count) 项，已全选")
-            platter(.creative, bytes: ScanStore.sum(creative), note: creative.isEmpty ? "暂无可清理项" : "\(tools) 个工具的缓存和日志")
-            platter(.chat, bytes: chats, note: result.chatApps.isEmpty ? "未发现" : "需在微信中清理 ›", warn: chats >= 2_000_000_000)
-            platter(.large, bytes: result.isQuickScan ? nil : ScanStore.sum(large),
-                    note: result.isQuickScan ? "完整扫描后显示" : (large.isEmpty ? "未发现" : "\(large.count) 项，需确认后删除"))
+        let large = store.largeFileSummary
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 12), count: compact ? 2 : 3), spacing: 12) {
+            categoryTile(.caches, bytes: ScanStore.sum(store.items(in: .caches).filter(\.canTrash)))
+            categoryTile(.creative, bytes: ScanStore.sum(store.items(in: .creative).filter(\.canTrash)))
+            categoryTile(.chat, bytes: chats, empty: "未发现", warn: chats >= 2_000_000_000)
+            SummaryTile(symbol: Theme.symbol(.large), tint: Theme.color(.large), title: ItemFilter.large.title,
+                        bytes: large?.bytes, status: large == nil ? "未扫描" : "无") {
+                if result.isQuickScan, large != nil { store.selectLocation(home, quick: false) }
+                store.selectCategory(.large)
+            }
+            DevSummaryTile(store: store.dev) { store.openTool(.dev) }
+            AppsSummaryTile(store: store.uninstaller) { store.openTool(.uninstall) }
         }
     }
 
-    private func platter(_ category: ItemFilter, bytes: Int64?, note: String, warn: Bool = false) -> some View {
-        let (number, unit) = splitBytes(bytes ?? 0)
-        return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
-            VStack(alignment: .leading, spacing: 0) {
-                IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
-                Text(category.title).font(.system(size: 13)).foregroundStyle(Theme.ink2).padding(.top, 12)
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text(bytes == nil || bytes == 0 ? "—" : number).font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                        .foregroundStyle(warn ? Theme.amber : Theme.ink)
-                    if let bytes, bytes > 0 { Text(unit).font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2) }
-                }
-                .padding(.top, 2)
-                Text(note).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).padding(.top, 6)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 16)
-            .glass(radius: 22)
-            .contentShape(Rectangle())
+    private func categoryTile(_ category: ItemFilter, bytes: Int64, empty: String = "无需清理", warn: Bool = false) -> some View {
+        SummaryTile(symbol: Theme.symbol(category), tint: Theme.color(category), title: category.title,
+                    bytes: bytes, status: empty, warn: warn) {
+            store.selectCategory(category)
         }
-        .buttonStyle(.plain)
+    }
+
+    // MARK: Scan detail
+
+    /// One scan's own page: what it checked and what it found, category by category. The overview is the whole Mac.
+    private func scanDetailPage(_ result: ScanResult) -> some View {
+        let quick = result.isQuickScan
+        let full = !quick && result.root.path == home.path
+        let safe = store.eligibleItems
+        let selected = store.selectedCleanupBytes
+        let order: [ItemFilter] = quick ? [.caches, .creative, .chat] : [.large, .caches, .creative, .chat]
+        let subtitle = quick ? "检查常见的缓存位置，不包含大文件"
+            : full ? "检查整个个人文件夹，包括大文件和安装包" : "检查此文件夹中的缓存、大文件和安装包"
+        return ScrollView {
+            GlassGroup {
+                VStack(alignment: .leading, spacing: 14) {
+                    PageHeader(symbol: quick ? "bolt.fill" : full ? "internaldrive.fill" : "folder.fill",
+                               tint: quick ? Theme.blue : Theme.violet, title: store.scopeTitle, subtitle: subtitle) {
+                        if !safe.isEmpty {
+                            Button { store.reviewCleanup() } label: {
+                                if store.isCleaning {
+                                    HStack(spacing: 8) {
+                                        ProgressView().controlSize(.small).tint(.white)
+                                        Text("正在清理 \(store.cleanedCount)/\(store.itemsToClean.count)").monospacedDigit()
+                                    }
+                                } else {
+                                    Text(selected > 0 ? "清理 \(ByteFormat.string(selected))" : "清理")
+                                }
+                            }
+                            .buttonStyle(HeroButtonStyle())
+                            .disabled(selected == 0 || store.isCleaning)
+                        }
+                    }
+                    banners
+                    ForEach(order) { category in detailSection(category, result: result) }
+                }
+                .padding(.horizontal, 30)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    /// A category's largest finds, with the way into its full list.
+    @ViewBuilder
+    private func detailSection(_ category: ItemFilter, result: ScanResult) -> some View {
+        let items = category == .large ? store.items(in: .large) : store.items(in: category).filter(\.canTrash)
+        let groups = grouped(items).sorted { $0.bytes > $1.bytes }
+        let chats = result.chatApps
+        if !(category == .chat ? chats.isEmpty : items.isEmpty) {
+            let bytes = category == .chat ? chats.reduce(Int64(0)) { $0 + ($1.bytes ?? 0) } : ScanStore.sum(items)
+            VStack(spacing: 0) {
+                Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
+                    HStack(spacing: 12) {
+                        IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
+                        Text(category.title).font(.system(size: 15, weight: .semibold))
+                        Text(ByteFormat.string(bytes)).font(.system(size: 13.5)).foregroundStyle(Theme.ink2).monospacedDigit()
+                        Spacer(minLength: 8)
+                        Text(category == .chat ? "查看清理方法 ›" : "查看全部 \(items.count) 项 ›")
+                            .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.blue)
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                if category == .chat {
+                    ForEach(chats) { chat in
+                        detailRow(icon: AnyView(IconTile(symbol: Theme.symbol(.chat), tint: Theme.color(.chat), size: 26)),
+                                  title: chat.name, detail: nil, bytes: chat.bytes)
+                    }
+                } else {
+                    ForEach(groups.prefix(4)) { group in
+                        let first = group.items[0]
+                        let info = ItemPresentation.info(for: first)
+                        detailRow(icon: AnyView(itemIcon(first, info: info).scaleEffect(0.87)),
+                                  title: group.items.count > 1 ? "\(info.title)（\(group.items.count) 项）" : info.title,
+                                  detail: shortPath(first.url.deletingLastPathComponent()), bytes: group.bytes)
+                    }
+                }
+            }
+            .glass()
+        } else {
+            // Empty categories stay on the page as one quiet line, so the page says what was checked.
+            HStack(spacing: 12) {
+                IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
+                Text(category.title).font(.system(size: 15, weight: .semibold))
+                Spacer(minLength: 8)
+                if category == .chat {
+                    Text("未检测到微信和企业微信").font(.system(size: 13)).foregroundStyle(Theme.ink3)
+                } else {
+                    Label("无需清理", systemImage: "checkmark.circle.fill")
+                        .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .glass()
+        }
+        if category == .chat, result.isQuickScan {
+            Button { withAnimation(.easeOut(duration: 0.15)) { store.selectLocation(home, quick: false) } } label: {
+                HStack(spacing: 12) {
+                    IconTile(symbol: Theme.symbol(.large), tint: Theme.color(.large), size: 30)
+                    Text(ItemFilter.large.title).font(.system(size: 15, weight: .semibold))
+                    Text("快速扫描不包含").font(.system(size: 13)).foregroundStyle(Theme.ink3)
+                    Spacer(minLength: 8)
+                    Text("查看完整扫描 ›").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.blue)
+                }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 12)
+                .glass()
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func detailRow(icon: AnyView, title: String, detail: String?, bytes: Int64?) -> some View {
+        HStack(spacing: 12) {
+            icon.frame(width: 30, height: 30)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title).font(.system(size: 13.5, weight: .medium)).lineLimit(1).truncationMode(.middle)
+                if let detail {
+                    Text(detail).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.middle)
+                }
+            }
+            Spacer(minLength: 10)
+            Text(bytes.map(ByteFormat.string) ?? "—").font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 9)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 60) }
     }
 
     @ViewBuilder
@@ -1299,6 +1395,7 @@ struct MainView: View {
                     .buttonStyle(HeroButtonStyle())
             }
         }
+        banners
         HStack(alignment: .top, spacing: 18) {
             VStack(spacing: 14) {
                 ZStack {
@@ -1642,12 +1739,12 @@ struct MainView: View {
                 Spacer()
                 if !store.undoable.isEmpty {
                     Button(store.isRestoring ? "正在恢复…" : "撤销") { store.undoLastCleanup() }
-                        .buttonStyle(GhostButtonStyle())
+                        .buttonStyle(ResultActionButtonStyle())
                         .disabled(store.isRestoring)
                         .help("恢复刚才清理的项目")
                 }
                 if report.movedCount > 0 {
-                    Button("打开废纸篓") { store.openTrash() }.buttonStyle(GhostButtonStyle())
+                    Button("打开废纸篓") { store.openTrash() }.buttonStyle(ResultActionButtonStyle())
                 }
                 Button { store.cleanupReport = nil } label: {
                     Image(systemName: "xmark").font(.system(size: 12, weight: .semibold))
@@ -1930,4 +2027,65 @@ struct WindowDragEnabler: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {}
+}
+
+/// One overview tile, one line: icon, name, and one figure (or a short word when there is none).
+struct SummaryTile: View {
+    let symbol: String
+    let tint: Color
+    let title: String
+    let bytes: Int64?
+    /// Shown instead of a size, quieter than a number: 无需清理 / 未扫描 / 11 个.
+    let status: String
+    var warn = false
+    var busy = false
+    let action: () -> Void
+
+    var body: some View {
+        Button { withAnimation(.easeOut(duration: 0.15)) { action() } } label: {
+            HStack(spacing: 12) {
+                IconTile(symbol: symbol, tint: tint, size: 30)
+                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1)
+                Spacer(minLength: 8)
+                if busy {
+                    ProgressView().controlSize(.small)
+                } else if let bytes, bytes > 0 {
+                    Text(ByteFormat.string(bytes)).font(.system(size: 16, weight: .semibold)).monospacedDigit()
+                        .foregroundStyle(warn ? Theme.amber : Theme.ink).lineLimit(1).fixedSize()
+                } else {
+                    Text(status).font(.system(size: 13.5)).foregroundStyle(Theme.ink3).lineLimit(1).fixedSize()
+                }
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .glass(radius: 18)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Dev projects on the overview; follows the tool's own scan, which a quick scan also starts in the background.
+struct DevSummaryTile: View {
+    @ObservedObject var store: DevStore
+    let action: () -> Void
+
+    var body: some View {
+        SummaryTile(symbol: "hammer.fill", tint: Theme.indigo, title: "开发缓存", bytes: ScanStore.sum(store.allArtifacts),
+                    status: store.result == nil ? "未扫描" : "无需清理", busy: store.isScanning, action: action)
+    }
+}
+
+/// Apps not opened for three months, from the uninstall page's last list (nothing is measured here).
+struct AppsSummaryTile: View {
+    @ObservedObject var store: UninstallStore
+    let action: () -> Void
+
+    var body: some View {
+        let idle = store.idleApps.count
+        SummaryTile(symbol: "trash.fill", tint: Theme.orange, title: "卸载应用", bytes: nil,
+                    status: store.apps.isEmpty ? "未检查" : idle > 0 ? "\(idle) 个长期未使用" : "\(store.apps.count) 个应用",
+                    action: action)
+    }
 }

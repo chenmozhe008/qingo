@@ -9,6 +9,29 @@ struct ToolPagesTests {
         return home
     }
 
+    @Test @MainActor func backgroundDiscoveryPreservesPendingChoices() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let project = home.appending(path: "Coding/project")
+        let cache = project.appending(path: ".build")
+        try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+        try Data("// project".utf8).write(to: project.appending(path: "Package.swift"))
+        try writeSparse(cache.appending(path: "data"), bytes: 6_000_000)
+        let result = try DevScanner(policy: SafetyPolicy(home: home)).scan(home.appending(path: "Coding"))
+        let store = DevStore()
+        store.result = result
+        store.selectAll()
+        #expect(store.canDiscoverAutomatically)
+        store.clearSelection()
+        #expect(!store.canDiscoverAutomatically)
+        store.selectAll()
+        store.showConfirm = true
+        #expect(!store.canDiscoverAutomatically)
+        store.showConfirm = false
+        store.isCleaning = true
+        #expect(!store.canDiscoverAutomatically)
+    }
+
     @Test func devScannerGroupsOutputByOutermostProjectAndSkipsCode() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }
@@ -153,5 +176,18 @@ struct ToolPagesTests {
         let ids = AppUninstaller(policy: SafetyPolicy(home: home)).installedApps().map(\.bundleID)
         #expect(!ids.contains("com.example.helper"))
         #expect(ids.contains("com.example.menubar"))
+    }
+}
+
+struct PageSwitchTests {
+    /// The overview is the whole Mac; a location opens its own page; a category clears both.
+    @Test @MainActor func overviewScanDetailAndCategoryAreDistinctPages() {
+        let store = ScanStore()
+        store.showScanDetail()
+        #expect(store.showingScanDetail && !store.showingOverview)
+        store.showOverview()
+        #expect(store.showingOverview && !store.showingScanDetail)
+        store.selectCategory(.caches)
+        #expect(!store.showingOverview && !store.showingScanDetail)
     }
 }

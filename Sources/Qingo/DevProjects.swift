@@ -30,12 +30,14 @@ struct DevScanner: Sendable {
     /// How deep to look for projects outside any project; deeper folders are rarely code roots.
     static let maxSearchDepth = 6
 
-    func scan(_ input: URL, onProgress: @Sendable (Int, String) -> Void = { _, _ in }) throws -> DevScanResult {
+    func scan(_ input: URL, onProgress: @Sendable (Int, String) -> Void = { _, _ in },
+              onFound: @Sendable (URL, ScanItem) -> Void = { _, _ in }) throws -> DevScanResult {
         let root = CanonicalPath.url(input)
         var info = stat()
         guard lstat(root.path, &info) == 0, (info.st_mode & mode_t(S_IFMT)) == mode_t(S_IFDIR) else { throw ScanError.invalidRoot }
         var state = WalkState(device: UInt64(info.st_dev))
-        try walk(root, project: nil, depth: 0, state: &state, onProgress: onProgress)
+        try walk(root, project: nil, depth: 0, state: &state, onProgress: onProgress, onFound: onFound)
+        onProgress(state.scanned, root.path)
         let projects = state.artifacts.keys.compactMap { key -> DevProject? in
             let artifacts = state.artifacts[key, default: []].sorted { $0.bytes > $1.bytes }
             let project = DevProject(id: key, modified: state.newest[key], artifacts: artifacts)
@@ -53,7 +55,8 @@ struct DevScanner: Sendable {
         var newest: [URL: Date] = [:]
     }
 
-    private func walk(_ url: URL, project: URL?, depth: Int, state: inout WalkState, onProgress: @Sendable (Int, String) -> Void) throws {
+    private func walk(_ url: URL, project: URL?, depth: Int, state: inout WalkState,
+                      onProgress: @Sendable (Int, String) -> Void, onFound: @Sendable (URL, ScanItem) -> Void) throws {
         try Task<Never, Never>.checkCancellation()
         state.scanned += 1
         if state.scanned.isMultiple(of: 300) { onProgress(state.scanned, url.deletingLastPathComponent().path) }
@@ -78,26 +81,28 @@ struct DevScanner: Sendable {
             let names = Set(children.map(\.lastPathComponent))
             if Self.markers.contains(where: names.contains) { owner = url }
         }
-        if let owner, url != owner, let item = artifact(url, identity: FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)),
+        if let owner, url != owner, let item = try artifact(url, identity: FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)),
                                                         modified: modified, state: &state) {
             state.artifacts[owner, default: []].append(item)
+            onFound(owner, item)
             return
         }
         for child in children {
-            try walk(child, project: owner, depth: depth + 1, state: &state, onProgress: onProgress)
+            try walk(child, project: owner, depth: depth + 1, state: &state, onProgress: onProgress, onFound: onFound)
         }
     }
 
     /// A regenerable build cache, measured; nil for anything else. node_modules and virtual environments are
     /// skipped whole (not descended into either), so nothing inside them is listed.
-    private func artifact(_ url: URL, identity: FileIdentity, modified: Date, state: inout WalkState) -> ScanItem? {
+    private func artifact(_ url: URL, identity: FileIdentity, modified: Date, state: inout WalkState) throws -> ScanItem? {
         let movable = access(url.path, W_OK) == 0 && access(url.deletingLastPathComponent().path, W_OK) == 0
         guard movable, let note = policy.cacheDescription(for: url, isDirectory: true) else { return nil }
-        return ScanItem(id: url, url: url, kind: .cache, risk: policy.risk(for: url, kind: .cache), bytes: measure(url, state: &state),
+        return ScanItem(id: url, url: url, kind: .cache, risk: policy.risk(for: url, kind: .cache), bytes: try measure(url, state: &state),
                         note: note, canTrash: true, identity: identity, modified: modified)
     }
 
-    private func measure(_ url: URL, state: inout WalkState) -> Int64 {
+    private func measure(_ url: URL, state: inout WalkState) throws -> Int64 {
+        try Task<Never, Never>.checkCancellation()
         var info = stat()
         guard lstat(url.path, &info) == 0, UInt64(info.st_dev) == state.device else { return 0 }
         state.scanned += 1
@@ -106,7 +111,7 @@ struct DevScanner: Sendable {
         if type != mode_t(S_IFDIR) { return max(0, Int64(info.st_size)) }
         var total: Int64 = 0
         for child in (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? [] {
-            let addition = total.addingReportingOverflow(measure(child, state: &state))
+            let addition = total.addingReportingOverflow(try measure(child, state: &state))
             total = addition.overflow ? Int64.max : addition.partialValue
         }
         return total
@@ -122,18 +127,28 @@ final class DevStore: ObservableObject {
     @Published private(set) var decisionNotes: [URL: String] = [:]
     @Published var isScanning = false
     @Published var scannedCount = 0
+    @Published var currentFolder = ""
+    /// Build caches found so far in the running scan, newest last, for the live list.
+    @Published private(set) var liveFound: [(project: URL, item: ScanItem)] = []
     @Published var selected: Set<URL> = []
     @Published var expanded: Set<String> = []
     @Published var showConfirm = false
     @Published var confirmDecided = false
     @Published var isCleaning = false
-    @Published var report: CleanupReport?
+    private let resultDismissTimer = ResultDismissTimer()
+    @Published var report: CleanupReport? {
+        didSet {
+            resultDismissTimer.cancel()
+            if report != nil { resultDismissTimer.schedule { [weak self] in self?.report = nil } }
+        }
+    }
     @Published var failureReasons: [URL: String] = [:]
     @Published private(set) var undoable: [TrashedItem] = []
     @Published var message: String?
 
     let policy = SafetyPolicy()
     private var scanTask: Task<Void, Never>?
+    private var scanID = UUID()
 
     var root: URL {
         get { UserDefaults.standard.string(forKey: "devRoot").map { URL(fileURLWithPath: $0) } ?? policy.home.appending(path: "Coding") }
@@ -181,6 +196,32 @@ final class DevStore: ObservableObject {
 
     // MARK: Scanning
 
+    /// How far along the scan is, judged by how many entries the last scan of this folder checked.
+    var estimatedProgress: Double? {
+        let expected = UserDefaults.standard.integer(forKey: Self.lastCountKey(root))
+        guard expected > 0 else { return nil }
+        return min(Double(scannedCount) / Double(expected), 0.99)
+    }
+
+    private static func lastCountKey(_ root: URL) -> String { "devScanSize:" + root.path }
+
+    var canDiscoverAutomatically: Bool {
+        !isScanning && !isCleaning && !showConfirm && report == nil && undoable.isEmpty
+            && selected == Set(allArtifacts.map(\.id))
+    }
+
+    /// Refresh in the background only when no pending choice or cleanup can be disturbed.
+    func discoverIfNeeded() -> UUID? {
+        guard canDiscoverAutomatically,
+              FileManager.default.fileExists(atPath: root.path) else { return nil }
+        scan()
+        return scanID
+    }
+
+    func cancelDiscovery(_ id: UUID) {
+        if isScanning && scanID == id { cancelScan() }
+    }
+
     func chooseRoot() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = true
@@ -197,6 +238,8 @@ final class DevStore: ObservableObject {
         guard !isScanning, !isCleaning else { return }
         isScanning = true
         scannedCount = 0
+        currentFolder = root.path
+        liveFound = []
         selected.removeAll()
         report = nil
         message = nil
@@ -204,16 +247,28 @@ final class DevStore: ObservableObject {
         undoable = []
         let scanRoot = root
         let scanPolicy = policy
+        let thisScan = UUID()
+        scanID = thisScan
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
-            let output = Result { try DevScanner(policy: scanPolicy).scan(scanRoot) { count, _ in
-                Task { @MainActor in self?.scannedCount = count }
-            } }
+            let output = Result { try DevScanner(policy: scanPolicy).scan(scanRoot, onProgress: { count, folder in
+                Task { @MainActor in
+                    guard let self, self.scanID == thisScan, self.isScanning else { return }
+                    self.scannedCount = count
+                    self.currentFolder = folder
+                }
+            }, onFound: { project, item in
+                Task { @MainActor in
+                    guard let self, self.scanID == thisScan, self.isScanning else { return }
+                    self.liveFound.append((project, item))
+                }
+            }) }
             await MainActor.run {
-                guard let self else { return }
+                guard let self, self.scanID == thisScan else { return }
                 self.isScanning = false
                 self.scanTask = nil
                 switch output {
                 case .success(let value):
+                    UserDefaults.standard.set(self.scannedCount, forKey: Self.lastCountKey(scanRoot))
                     self.result = value
                     self.selectAll()
                     self.save()
@@ -227,6 +282,7 @@ final class DevStore: ObservableObject {
     func cancelScan() {
         scanTask?.cancel()
         scanTask = nil
+        scanID = UUID()
         isScanning = false
     }
 
@@ -291,7 +347,8 @@ final class DevStore: ObservableObject {
     // MARK: Saved result
 
     private var savedURL: URL {
-        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Qingo/results")
+        let directory = ProcessInfo.processInfo.environment["QINGO_RESULTS_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Qingo/results")
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         return directory.appending(path: "dev.json")
     }

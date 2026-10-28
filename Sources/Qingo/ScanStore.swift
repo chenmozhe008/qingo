@@ -33,7 +33,15 @@ final class ScanStore: ObservableObject {
     @Published var isScanning = false
     @Published var progress = ScanProgress(scannedCount: 0, currentFolder: "")
     @Published var message: String?
-    @Published var cleanupReport: CleanupReport?
+    private let resultDismissTimer = ResultDismissTimer()
+    @Published var cleanupReport: CleanupReport? {
+        didSet {
+            resultDismissTimer.cancel()
+            if cleanupReport != nil {
+                resultDismissTimer.schedule { [weak self] in self?.cleanupReport = nil }
+            }
+        }
+    }
     @Published var selectedID: URL?
     @Published var selectedCleanupIDs: Set<URL> = []
     @Published var showTrashConfirmation = false
@@ -91,6 +99,7 @@ final class ScanStore: ObservableObject {
     let policy = SafetyPolicy()
     private var scanID = UUID()
     private var scanTask: Task<Void, Never>?
+    private var quickDiscoveryID: UUID?
     private var quickMode = false
 
     private enum Keys {
@@ -107,14 +116,8 @@ final class ScanStore: ObservableObject {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         refreshFullDiskAccess()
         appearance.apply()
-        // 自动 follows the clock: re-check each minute (it only changes anything at 7:00 and 19:00).
-        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                guard let self, self.appearance == .system else { return }
-                self.appearance.apply()
-            }
-        }
         loadLastResult()
+        uninstaller.showCachedList()
         // For screenshots without touching the mouse: `open -a … --args --show-about[=反馈]` / `--scan`.
         let arguments = ProcessInfo.processInfo.arguments
         if let about = arguments.first(where: { $0.hasPrefix("--show-about") }) {
@@ -141,6 +144,8 @@ final class ScanStore: ObservableObject {
            let category = ItemFilter(rawValue: raw) {
             selectCategory(category)
         }
+        // `--scan-detail`: open the shown location's own page instead of the overview.
+        if arguments.contains("--scan-detail") { showScanDetail() }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
         creativeScrollTarget = arguments.first { $0.hasPrefix("--creative-app=") }.map { String($0.dropFirst("--creative-app=".count)) }
         // `--tool=uninstall` / `--tool=dev` (add `--dev-scan` to rescan the dev folder).
@@ -306,16 +311,39 @@ final class ScanStore: ObservableObject {
 
     /// The overview page (dial, outcome, one button, category platters), not a category's list.
     @Published var showingOverview = true
+    /// The scan's own page: what this scan found, category by category. Opened from its location in the sidebar.
+    @Published var showingScanDetail = false
 
     func showOverview() {
         tool = nil
         showingOverview = true
+        showingScanDetail = false
+        selectedID = nil
+    }
+
+    /// The overview belongs to the whole Mac, so it stays reachable from a location that was never scanned
+    /// (an external disk): it then falls back to the home folder's quick scan.
+    func goToOverview() {
+        guard !isScanning, !isCleaning else { return }
+        if result == nil {
+            setRoot(policy.home)
+            quickMode = true
+            showSavedResult()
+        }
+        showOverview()
+    }
+
+    func showScanDetail() {
+        tool = nil
+        showingOverview = false
+        showingScanDetail = true
         selectedID = nil
     }
 
     func selectCategory(_ category: ItemFilter) {
         tool = nil
         showingOverview = false
+        showingScanDetail = false
         filter = category
         selectedID = nil
     }
@@ -381,13 +409,9 @@ final class ScanStore: ObservableObject {
             tool = nil
             return
         }
-        tool = nil
-        showingOverview = true
-        // Clicking the location you're already on goes back to its overview.
-        if isCurrentScope(url, quick: quick), result != nil {
-            showOverview()
-            return
-        }
+        // A location opens its own page; the overview is the whole Mac.
+        showScanDetail()
+        if isCurrentScope(url, quick: quick), result != nil { return }
         setRoot(quick ? policy.home : url)
         quickMode = quick
         showSavedResult()
@@ -467,6 +491,7 @@ final class ScanStore: ObservableObject {
         let scanRoot = root
         let scanPolicy = policy
         let isQuick = quickMode
+        quickDiscoveryID = isQuick ? dev.discoverIfNeeded() : nil
         scanTask = Task.detached(priority: .userInitiated) { [weak self] in
             let store = self
             let onProgress: @Sendable (ScanProgress) -> Void = { update in
@@ -513,6 +538,8 @@ final class ScanStore: ObservableObject {
 
     func cancelScan() {
         guard isScanning else { return }
+        if let id = quickDiscoveryID { dev.cancelDiscovery(id) }
+        quickDiscoveryID = nil
         scanTask?.cancel()
         scanTask = nil
         scanID = UUID()
@@ -541,6 +568,29 @@ final class ScanStore: ObservableObject {
         if let data = try? JSONEncoder().encode(value) { try? data.write(to: resultURL(for: scopeKey), options: .atomic) }
         scanDates[scopeKey] = value.scannedAt.timeIntervalSince1970
         UserDefaults.standard.set(scopeKey, forKey: Keys.lastScope)
+        refreshLargeFileSummary()
+    }
+
+    /// Large files from the last full scan of the home folder, for the overview while another scan is shown.
+    struct LargeFileSummary {
+        let count: Int
+        let bytes: Int64
+        let scannedAt: Date
+    }
+
+    @Published private(set) var largeFileSummary: LargeFileSummary?
+
+    func refreshLargeFileSummary() {
+        let value: ScanResult?
+        if !quickMode, root.path == policy.home.path, let result {
+            value = result
+        } else {
+            value = (try? Data(contentsOf: resultURL(for: Self.scopeKey(root: policy.home, quick: false))))
+                .flatMap { try? JSONDecoder().decode(ScanResult.self, from: $0) }
+        }
+        guard let value else { largeFileSummary = nil; return }
+        let large = value.items.filter { ItemFilter.large.contains($0) && FileManager.default.fileExists(atPath: $0.url.path) }
+        largeFileSummary = LargeFileSummary(count: large.count, bytes: Self.sum(large), scannedAt: value.scannedAt)
     }
 
     /// Shows the current location's previous scan. Cleanup still re-checks each path's identity before moving.
@@ -565,6 +615,7 @@ final class ScanStore: ObservableObject {
                             volumeFreeBytes: value.volumeFreeBytes, skippedCount: value.skippedCount,
                             scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps)
         pickAllSafe()
+        refreshLargeFileSummary()
         // Reopen on the category last viewed, if it is still shown.
         if let saved = UserDefaults.standard.string(forKey: Keys.lastFilter).flatMap(ItemFilter.init(rawValue:)), ItemFilter.visible.contains(saved) {
             filter = saved
@@ -730,7 +781,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
         guard let application = NSApp else { return }
         let target: NSAppearance?
         switch self {
-        case .system: target = Self.systemSwitchesItself ? nil : NSAppearance(named: Self.isNight() ? .darkAqua : .aqua)
+        case .system: target = nil
         case .light: target = NSAppearance(named: .aqua)
         case .dark: target = NSAppearance(named: .darkAqua)
         }
@@ -740,14 +791,6 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
         for window in application.windows { window.appearance = nil }
     }
 
-    /// 自动 means light by day, dark at night. When macOS itself is set to 自动 it already does that (by sunset),
-    /// so follow it; otherwise use a fixed day of 7:00–19:00.
-    static var systemSwitchesItself: Bool { UserDefaults.standard.bool(forKey: "AppleInterfaceStyleSwitchesAutomatically") }
-
-    static func isNight(_ date: Date = Date()) -> Bool {
-        let hour = Calendar.current.component(.hour, from: date)
-        return hour < 7 || hour >= 19
-    }
 }
 
 

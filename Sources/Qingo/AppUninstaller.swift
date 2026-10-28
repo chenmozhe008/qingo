@@ -349,7 +349,13 @@ final class UninstallStore: ObservableObject {
     @Published var showConfirm = false
     @Published var confirmDecided = false
     @Published var isWorking = false
-    @Published var report: CleanupReport?
+    private let resultDismissTimer = ResultDismissTimer()
+    @Published var report: CleanupReport? {
+        didSet {
+            resultDismissTimer.cancel()
+            if report != nil { resultDismissTimer.schedule { [weak self] in self?.report = nil } }
+        }
+    }
     @Published var message: String?
     @Published private(set) var undoable: [(original: URL, trashed: URL)] = []
 
@@ -370,6 +376,17 @@ final class UninstallStore: ObservableObject {
     }
 
     var selectedApp: InstalledApp? { apps.first { $0.id == selectedID } }
+
+    /// The last list, for the overview, without measuring anything. The page itself still refreshes it on first visit.
+    func showCachedList() {
+        if apps.isEmpty { apps = Self.loadCache() }
+    }
+
+    /// Apps not opened for three months: the ones worth looking at first.
+    var idleApps: [InstalledApp] {
+        let cutoff = Date().addingTimeInterval(-90 * 86_400)
+        return apps.filter { ($0.lastUsed ?? .distantFuture) < cutoff }
+    }
 
     func isRunning(_ app: InstalledApp) -> Bool {
         app.bundleIDs.contains { !NSRunningApplication.runningApplications(withBundleIdentifier: $0).isEmpty }
