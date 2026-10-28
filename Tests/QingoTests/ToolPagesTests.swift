@@ -190,4 +190,14 @@ struct PageSwitchTests {
         store.selectCategory(.caches)
         #expect(!store.showingOverview && !store.showingScanDetail)
     }
+
+    /// A tool opened from a location without a result falls back to the quick scan, so the sidebar keeps its categories.
+    @Test @MainActor func toolFromUnscannedLocationKeepsAResult() throws {
+        let store = ScanStore()
+        store.selectLocation(URL(fileURLWithPath: "/Volumes/never-scanned-\(UUID().uuidString)"), quick: false)
+        #expect(store.result == nil)
+        store.openTool(.dev)
+        #expect(store.tool == .dev)
+        #expect(store.isQuickScope)
+    }
 }

@@ -91,6 +91,13 @@ final class ScanStore: ObservableObject {
 
     func openTool(_ page: ToolPage) {
         guard !isScanning, !isCleaning else { return }
+        // Tools belong to no location. Opened from one never scanned (an external disk), the sidebar would lose
+        // its categories, so fall back to the quick scan's result.
+        if result == nil {
+            setRoot(policy.home)
+            quickMode = true
+            showSavedResult()
+        }
         tool = page
         selectedID = nil
         if page == .uninstall { uninstaller.loadIfNeeded() }
