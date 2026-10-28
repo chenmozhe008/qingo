@@ -279,11 +279,19 @@ struct MainView: View {
                     .allowsHitTesting(false)
             }
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-            HStack(spacing: 10) {
-                liveTotal(.caches, ByteFormat.string(ScanStore.sum(caches)))
-                liveTotal(.creative, ByteFormat.string(ScanStore.sum(creative)))
-                liveTotal(.large, store.isQuickScope ? "仅完整扫描" : "\(large.count) 项")
+            // The whole row switches together, so the three tiles never mix layouts.
+            ViewThatFits(in: .horizontal) {
+                liveTotals(caches: caches, creative: creative, large: large, compact: false)
+                liveTotals(caches: caches, creative: creative, large: large, compact: true)
             }
+        }
+    }
+
+    private func liveTotals(caches: [ScanItem], creative: [ScanItem], large: [ScanItem], compact: Bool) -> some View {
+        HStack(spacing: 10) {
+            liveTotal(.caches, ByteFormat.string(ScanStore.sum(caches)), compact: compact)
+            liveTotal(.creative, ByteFormat.string(ScanStore.sum(creative)), compact: compact)
+            liveTotal(.large, store.isQuickScope ? "仅完整扫描" : "\(large.count) 项", muted: store.isQuickScope, compact: compact)
         }
     }
 
@@ -308,17 +316,39 @@ struct MainView: View {
     }
 
     /// Same tile and colour as the overview platter for that category.
-    private func liveTotal(_ category: ItemFilter, _ value: String) -> some View {
-        HStack(spacing: 12) {
-            IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(category.title).font(.system(size: 12)).foregroundStyle(Theme.ink2)
-                Text(value).font(.system(size: 19, weight: .semibold)).monospacedDigit()
-                    .contentTransition(.numericText())
+    /// Narrow windows stack icon, name and value; neither text ever wraps.
+    private func liveTotal(_ category: ItemFilter, _ value: String, muted: Bool = false, compact: Bool) -> some View {
+        let title = Text(category.title).font(.system(size: 12)).foregroundStyle(Theme.ink2)
+            .lineLimit(1).fixedSize()
+        let amount = Text(value)
+            .font(.system(size: muted ? 15 : 19, weight: muted ? .medium : .semibold))
+            .foregroundStyle(muted ? Theme.ink3 : Theme.ink)
+            .monospacedDigit()
+            .lineLimit(1).fixedSize()
+            .contentTransition(.numericText())
+        return Group {
+            if compact {
+                VStack(alignment: .leading, spacing: 8) {
+                    IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 26)
+                    VStack(alignment: .leading, spacing: 2) {
+                        title
+                        amount.frame(height: 24, alignment: .leading)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+            } else {
+                HStack(spacing: 12) {
+                    IconTile(symbol: Theme.symbol(category), tint: Theme.color(category), size: 30)
+                    VStack(alignment: .leading, spacing: 2) {
+                        title
+                        amount.frame(height: 24, alignment: .leading)
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 16)
             }
-            Spacer(minLength: 0)
         }
-        .padding(.horizontal, 16)
         .padding(.vertical, 12)
         .glass(radius: 18)
     }
