@@ -335,7 +335,7 @@ struct MainView: View {
                 }
             }
             .padding(.horizontal, 8)
-            .padding(.bottom, 10)
+            .padding(.bottom, 4)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 3) {
@@ -355,12 +355,12 @@ struct MainView: View {
                     }
                     addFolderRow
 
-                    sectionHeader("工具").padding(.top, 12)
+                    sectionHeader("工具").padding(.top, 4)
                     toolRow("开发缓存", icon: "hammer.fill", tint: Theme.indigo, page: .dev)
                     toolRow("卸载应用", icon: "trash.fill", tint: Theme.orange, page: .uninstall)
 
                     if store.result != nil {
-                        sectionHeader("分类").padding(.top, 12)
+                        sectionHeader("分类").padding(.top, 4)
                     }
                     ForEach(store.result == nil ? [] : ItemFilter.visible) { category in
                         let items = store.items(in: category)
@@ -387,21 +387,24 @@ struct MainView: View {
             .scrollIndicators(.hidden)
             Divider().padding(.vertical, 8)
             permissionCard
-            appearancePicker
-            Button { store.aboutTab = .intro; store.showAbout = true } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: "info.circle").font(.system(size: 16)).foregroundStyle(Theme.ink2)
-                    Text("关于与反馈").font(.system(size: 13, weight: .medium))
-                    Spacer(minLength: 4)
-                    Text("v\(AppInfo.version)").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+            // About and appearance share one row, so the categories above still fit the smallest window.
+            HStack(spacing: 8) {
+                Button { store.aboutTab = .intro; store.showAbout = true } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "info.circle").font(.system(size: 15)).foregroundStyle(Theme.ink2)
+                        Text("关于").font(.system(size: 13, weight: .medium))
+                    }
+                    .foregroundStyle(Theme.ink)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 6)
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(Theme.ink)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 10)
-                .contentShape(Rectangle())
+                .buttonStyle(.plain)
+                .help("关于与反馈（v\(AppInfo.version)）")
+                Spacer(minLength: 4)
+                appearancePicker
             }
-            .buttonStyle(.plain)
-            .padding(.top, 6)
+            .padding(.top, 4)
         }
         .padding(.top, 40)
         .padding(.horizontal, 14)
@@ -414,12 +417,11 @@ struct MainView: View {
                 let on = store.appearance == mode
                 Button { store.appearance = mode } label: {
                     // Words, not just icons (a half-filled circle explains nothing); the chosen one is raised, never darker.
-                    Label(mode.title, systemImage: mode.symbol)
-                        .labelStyle(.titleAndIcon)
+                    Text(mode.title)
                         .font(.system(size: 12, weight: on ? .semibold : .medium))
                         .foregroundStyle(on ? Theme.ink : Theme.ink2)
                         .lineLimit(1)
-                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 10)
                         .padding(.vertical, 5)
                         .background(RoundedRectangle(cornerRadius: 6, style: .continuous).fill(on ? Theme.raised : .clear)
                             .shadow(color: .black.opacity(on ? 0.12 : 0), radius: 1.5, y: 1))
@@ -431,8 +433,6 @@ struct MainView: View {
         }
         .padding(2)
         .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.fill(0.07)))
-        .padding(.horizontal, 6)
-        .padding(.top, 10)
     }
 
     /// Same colored tile as the categories, so the tools read as part of the app rather than plain links.
@@ -447,7 +447,7 @@ struct MainView: View {
             .font(.system(size: 14))
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4.5)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
@@ -465,7 +465,7 @@ struct MainView: View {
             }
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4.5)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(active ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
@@ -477,8 +477,8 @@ struct MainView: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(Theme.ink3)
             .padding(.horizontal, 8)
-            .padding(.top, 10)
-            .padding(.bottom, 4)
+            .padding(.top, 8)
+            .padding(.bottom, 3)
     }
 
     /// Clicking only switches to the location and shows its last result; scanning starts from the scan button.
@@ -509,7 +509,7 @@ struct MainView: View {
             .font(.system(size: 14))
             .foregroundStyle(active ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4.5)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .fill(active && store.showingScanDetail ? Theme.selection : .clear))
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous)
@@ -537,7 +537,7 @@ struct MainView: View {
             .font(.system(size: 14))
             .foregroundStyle(Theme.ink3)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4.5)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -573,7 +573,7 @@ struct MainView: View {
             .font(.system(size: 14))
             .foregroundStyle(selected ? Theme.ink : Theme.ink2)
             .padding(.horizontal, 8)
-            .padding(.vertical, 6)
+            .padding(.vertical, 4.5)
             .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(selected ? Theme.selection : .clear))
             .contentShape(Rectangle())
         }
@@ -583,13 +583,7 @@ struct MainView: View {
 
     @ViewBuilder
     private var permissionCard: some View {
-        if store.hasFullDiskAccess {
-            Label("完全磁盘访问已开启", systemImage: "checkmark.shield.fill")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(Theme.ink2)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 5)
-        } else {
+        if !store.hasFullDiskAccess {
             VStack(alignment: .leading, spacing: 6) {
                 Label("未开启完全磁盘访问", systemImage: "exclamationmark.shield.fill")
                     .font(.system(size: 12.5, weight: .semibold))
