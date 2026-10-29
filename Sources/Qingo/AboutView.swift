@@ -247,7 +247,7 @@ struct AboutView: View {
                 advantage("开源，持续更新", nil, "lock.open.fill", Theme.violet,
                           "全部代码在 GitHub 公开，清理规则可供查验。AI 工具更新频繁，识别清单集中维护，新工具可以快速加入，也欢迎提交。",
                           clean: "MIT 许可证，免费使用",
-                          keep: "不联网，不上传数据，扫描结果仅保存在本机")
+                          keep: "仅检查更新时访问 GitHub，不上传数据，扫描结果仅保存在本机")
             }
 
             VStack(alignment: .leading, spacing: 14) {
@@ -260,6 +260,7 @@ struct AboutView: View {
             Label(AppInfo.requirements, systemImage: "laptopcomputer")
                 .font(.system(size: 13)).foregroundStyle(Theme.ink2)
                 .fixedSize(horizontal: false, vertical: true)
+                .padding(.bottom, 20)
         }
     }
 
