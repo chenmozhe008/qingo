@@ -746,6 +746,7 @@ struct MainView: View {
                 .buttonStyle(ToolbarButtonStyle(prominent: stale, large: true, tinted: !stale))
                 .help("重新扫描「\(store.scopeTitle)」（⌘R）")
             Spacer()
+            UpdateButton(checker: store.updates)
         }
         .disabled(store.isCleaning)
         .padding(.leading, showSidebar ? 22 : 22)
@@ -2216,6 +2217,23 @@ final class HoverTracker: ObservableObject {
 
     func update(_ row: URL, inside: Bool) {
         if inside { id = row } else if id == row { id = nil }
+    }
+}
+
+/// At the right end of the top bar when a newer release exists; nothing otherwise.
+/// Not in the sidebar: its height is budgeted so every category fits the smallest window.
+struct UpdateButton: View {
+    @ObservedObject var checker: UpdateChecker
+
+    var body: some View {
+        if let release = checker.available {
+            Button { checker.openDownload() } label: {
+                Label("新版本 \(release.version)", systemImage: "arrow.down.circle.fill").lineLimit(1)
+            }
+            .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
+            .help("在 GitHub 下载新版本，下载后替换「应用程序」中的小清")
+            .layoutPriority(1)
+        }
     }
 }
 

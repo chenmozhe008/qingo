@@ -102,6 +102,7 @@ final class ScanStore: ObservableObject {
     @Published var tool: ToolPage?
     let dev = DevStore()
     let uninstaller = UninstallStore()
+    let updates = UpdateChecker()
 
     func openTool(_ page: ToolPage) {
         guard !isScanning, !isCleaning else { return }
@@ -141,6 +142,7 @@ final class ScanStore: ObservableObject {
         loadLastResult()
         uninstaller.showCachedList()
         SpaceAlert.sync()
+        updates.checkIfDue()
         SpaceAlert.onOpen = { [weak self] in self?.quickScanFromAlert() }
         if SpaceAlert.openPending {
             SpaceAlert.openPending = false

@@ -185,6 +185,14 @@
 - 曲线：后台检查每 30 分钟往 `results/space-history.json` 记一次（留 14 天），记录不满两点时显示一句说明。通知正文在 3 天内少了 ≥ 2 GB 时带上「N 天内减少 X」
 - 验证：拷一份 results 到项目 `tmp/`，造一个 3 天前的 `cXVpY2stYmFzZWxpbmU=.json`（"quick-baseline" 的 base64）和 history，`open -n -g --env QINGO_RESULTS_DIR=<目录> dist/小清.app --args --growth --snapshot=…`；**要用 open 起 App**，直接跑可执行文件没有完全磁盘访问权限，截出来不准
 
+## 检查更新（2026-10-29 用户定：「肯定要做，改承诺就行」）
+
+- 小清唯一联网的地方：`UpdateChecker` 每天最多一次读 GitHub `releases/latest` 的版本号（`updateLastCheck` 记时间，一天内用缓存的结果），不上传任何东西。README 的承诺已改成「仅在检查更新时访问 GitHub（每天最多一次，可关闭）」，**别再写「不联网」**
+- 有新版：顶栏最右边一个 tinted 按钮「新版本 X」，点了打开 Release 页下载。**不放侧栏**：试过放「关于」上方，最小窗口把「大文件」挤掉一半（左栏高度规则）
+- 菜单「小清 › 检查更新…」（弹窗说结果）、「自动检查更新」开关（默认开）。不做自动安装：没公证，自己替换自己会被 Gatekeeper 拦
+- 版本比较按数字逐段（1.10 > 1.9），开发版不提示；**发 Release 时 tag 必须是 `v<版本>`**，否则比较不出来
+- 验证：`open -n -g --env QINGO_PRETEND_UPDATE=9.9.9 dist/小清.app --args --snapshot=…` 假装有新版
+
 ## 清理结果提示
 
 - 清理结果走 `CleanupReport`（结构化），不要把系统报错原文拼进 `message`

@@ -32,6 +32,9 @@ struct QingoApp: App {
                 Button("关于小清") { store.showAbout = true }
                 Divider()
                 Toggle("剩余空间较少时提醒", isOn: $store.spaceAlertEnabled)
+                Divider()
+                Button("检查更新…") { store.updates.checkFromMenu() }
+                Toggle("自动检查更新", isOn: Binding(get: { store.updates.automatic }, set: { store.updates.automatic = $0 }))
             }
             CommandMenu("外观") {
                 Picker("外观", selection: $store.appearance) {

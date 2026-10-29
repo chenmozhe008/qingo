@@ -91,3 +91,13 @@ struct SpaceGrowthTests {
         #expect(SpaceAlert.body(free: 8 * gb, history: [], now: now) == "可用 8 GB。点按以开始快速扫描。")
     }
 }
+
+struct UpdateVersionTests {
+    @Test func comparesVersionsNumerically() {
+        #expect(UpdateChecker.isNewer("1.10.0", than: "1.9.2"))
+        #expect(UpdateChecker.isNewer("1.12.1", than: "1.12"))
+        #expect(!UpdateChecker.isNewer("1.12.0", than: "1.12.0"))
+        #expect(!UpdateChecker.isNewer("1.11.0", than: "1.12.0"))
+        #expect(!UpdateChecker.isNewer("2.0.0", than: "开发版"))
+    }
+}
