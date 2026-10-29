@@ -101,3 +101,19 @@ struct UpdateVersionTests {
         #expect(!UpdateChecker.isNewer("2.0.0", than: "开发版"))
     }
 }
+
+struct UpdateFeedTests {
+    @Test func readsVersionZipDigestAndNotes() throws {
+        let json = """
+        {"tag_name":"v1.14.0","html_url":"https://github.com/chenmozhe008/qingo/releases/tag/v1.14.0",
+         "body":"简介\\n\\n## 下载安装\\n\\n- 不算\\n\\n## 1.14.0 更新内容\\n\\n- 一键更新\\n- 第二条\\n",
+         "assets":[{"name":"Other.txt","browser_download_url":"https://x/other"},
+                   {"name":"Qingo-1.14.0.zip","browser_download_url":"https://x/q.zip","digest":"sha256:abc"}]}
+        """
+        let release = try #require(UpdateChecker.parse(Data(json.utf8)))
+        #expect(release.version == "1.14.0")
+        #expect(release.asset?.absoluteString == "https://x/q.zip")
+        #expect(release.digest == "sha256:abc")
+        #expect(release.notes == ["一键更新", "第二条"])
+    }
+}

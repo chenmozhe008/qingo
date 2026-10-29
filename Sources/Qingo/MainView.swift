@@ -2220,19 +2220,32 @@ final class HoverTracker: ObservableObject {
     }
 }
 
-/// At the right end of the top bar when a newer release exists; nothing otherwise.
+/// At the right end of the top bar when a newer release exists: the button, then the download's progress.
 /// Not in the sidebar: its height is budgeted so every category fits the smallest window.
 struct UpdateButton: View {
     @ObservedObject var checker: UpdateChecker
 
     var body: some View {
-        if let release = checker.available {
-            Button { checker.openDownload() } label: {
-                Label("新版本 \(release.version)", systemImage: "arrow.down.circle.fill").lineLimit(1)
+        switch checker.phase {
+        case .downloading(let fraction):
+            HStack(spacing: 8) {
+                ProgressView(value: fraction).frame(width: 90).tint(Theme.blue)
+                Text("正在下载 \(Int(fraction * 100))%").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2).monospacedDigit()
             }
-            .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
-            .help("在 GitHub 下载新版本，下载后替换「应用程序」中的小清")
-            .layoutPriority(1)
+        case .installing:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("正在安装…").font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2)
+            }
+        case .idle:
+            if let release = checker.available {
+                Button { checker.offerAvailable() } label: {
+                    Label("新版本 \(release.version)", systemImage: "arrow.down.circle.fill").lineLimit(1)
+                }
+                .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
+                .help("更新到 \(release.version)，完成后自动重新打开")
+                .layoutPriority(1)
+            }
         }
     }
 }

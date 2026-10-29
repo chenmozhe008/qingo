@@ -188,8 +188,12 @@
 ## 检查更新（2026-10-29 用户定：「肯定要做，改承诺就行」）
 
 - 小清唯一联网的地方：`UpdateChecker` 每天最多一次读 GitHub `releases/latest` 的版本号（`updateLastCheck` 记时间，一天内用缓存的结果），不上传任何东西。README 的承诺已改成「仅在检查更新时访问 GitHub（每天最多一次，可关闭）」，**别再写「不联网」**
-- 有新版：顶栏最右边一个 tinted 按钮「新版本 X」，点了打开 Release 页下载。**不放侧栏**：试过放「关于」上方，最小窗口把「大文件」挤掉一半（左栏高度规则）
-- 菜单「小清 › 检查更新…」（弹窗说结果）、「自动检查更新」开关（默认开）。不做自动安装：没公证，自己替换自己会被 Gatekeeper 拦
+- 有新版：顶栏最右边一个 tinted 按钮「新版本 X」→ 弹窗列出 Release「更新内容」的条目 →「更新并重新打开」。**不放侧栏**：试过放「关于」上方，最小窗口把「大文件」挤掉一半（左栏高度规则）
+- **一键更新（10-29 用户：「跳到 GitHub 再下载不太好，直接进度条、完了就安装」）**：下载 Release 里 `Qingo-*.zip`（按钮变进度条）→ 对 GitHub 资产的 `digest`（sha256）→ `ditto -x -k` 解压 → 核对 bundle id、版本号、`codesign --verify --deep --strict` → 去 quarantine → `trashItem` 把**正在运行的**自己移到废纸篓（系统允许）→ 新版移到原位置 → 起一个 sh 等本进程退出后 `open` → `NSApp.terminate`。替换失败把旧版挪回去；任何一步失败弹窗给「前往下载」兜底。App 自己下载的文件不带 quarantine，所以 Gatekeeper 不拦
+- **发版附件名必须是 `Qingo-<版本>.zip`、tag 必须是 `v<版本>`**，否则一键更新找不到包 / 比较不出版本
+- 已知：发布版是临时签名，每个版本 cdhash 不同，**更新后「完全磁盘访问」要重新开**（手动替换也一样；只有 Developer ID 签名能解决）
+- 端到端测试（10-29 跑通）：打一份旧版本号的包放项目 `tmp/`，`package_release.sh` 打新版 zip，写一个假的 releases/latest JSON（资产地址用 file://，路径有空格要编码），`open -n -g --env QINGO_UPDATE_FEED=<file:// JSON> --env QINGO_AUTO_INSTALL=1 <旧版.app>`（AUTO_INSTALL 跳过确认弹窗，只给测试用）；测完删 `updateLatestRelease`/`updateLastCheck` 两个 defaults
+- 菜单「小清 › 检查更新…」（有新版走同一个更新弹窗）、「自动检查更新」开关（默认开）
 - 版本比较按数字逐段（1.10 > 1.9），开发版不提示；**发 Release 时 tag 必须是 `v<版本>`**，否则比较不出来
 - 验证：`open -n -g --env QINGO_PRETEND_UPDATE=9.9.9 dist/小清.app --args --snapshot=…` 假装有新版
 
