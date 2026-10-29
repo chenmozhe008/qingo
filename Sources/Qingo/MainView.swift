@@ -1,4 +1,5 @@
 import AppKit
+import Charts
 import SwiftUI
 
 private enum BrandAsset {
@@ -595,7 +596,7 @@ struct MainView: View {
     }
 
     private func categoryRow(_ category: ItemFilter, bytes: Int64) -> some View {
-        let selected = store.tool == nil && !store.showingOverview && store.filter == category
+        let selected = store.tool == nil && !store.showingOverview && !store.showingGrowth && store.filter == category
         let tint = Theme.color(category)
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
             HStack(spacing: 10) {
@@ -648,6 +649,8 @@ struct MainView: View {
             topBar(result)
             if store.showingOverview {
                 overviewPage(result)
+            } else if store.showingGrowth, let growth = store.spaceGrowth {
+                growthPage(growth)
             } else if store.showingScanDetail {
                 scanDetailPage(result)
             } else if store.filter == .creative {
@@ -825,6 +828,9 @@ struct MainView: View {
                 }
                 .padding(.top, compact ? 18 : 24)
             }
+            if let growth = store.spaceGrowth, growth.isNotable {
+                growthCard(growth, compact: compact).padding(.top, compact ? 16 : 22)
+            }
         }
         .frame(maxWidth: 460, alignment: .leading)
     }
@@ -852,6 +858,208 @@ struct MainView: View {
                     bytes: bytes, status: empty, warn: warn) {
             store.selectCategory(category)
         }
+    }
+
+    // MARK: Space change
+
+    /// "3 天内可用空间减少 23.1 GB", or what grew when free space did not drop (something else was cleaned).
+    private func growthTitle(_ growth: SpaceGrowth) -> String {
+        let span = SpaceGrowth.spanText(since: growth.since)
+        if let drop = growth.freeDrop, drop >= 1_000_000_000 { return "\(span)可用空间减少 \(ByteFormat.string(drop))" }
+        return "\(span)新增占用 \(ByteFormat.string(growth.entriesGrowth))"
+    }
+
+    /// On the overview after a jump: the biggest growth, and the way into the full report.
+    private func growthCard(_ growth: SpaceGrowth, compact: Bool) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Text(growthTitle(growth)).font(.system(size: 14.5, weight: .semibold)).lineLimit(1)
+                Spacer(minLength: 8)
+                Button("查看报告 ›") { withAnimation(.easeOut(duration: 0.15)) { store.showGrowth() } }
+                    .buttonStyle(.plain)
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(Theme.blue)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            ForEach(growth.entries.prefix(compact ? 2 : 3)) { growthRow($0, showSize: false) }
+        }
+        .padding(.bottom, growth.entries.isEmpty ? 0 : 4)
+        .glass()
+    }
+
+    /// One thing that grew: what it is, by how much, and what can be done about it.
+    private func growthRow(_ entry: SpaceGrowth.Entry, showSize: Bool) -> some View {
+        HStack(spacing: 12) {
+            switch entry.source {
+            case .item(let item):
+                itemIcon(item, info: ItemPresentation.info(for: item)).scaleEffect(0.87).frame(width: 30, height: 30)
+            case .chat:
+                IconTile(symbol: Theme.symbol(.chat), tint: Theme.color(.chat), size: 30)
+            }
+            VStack(alignment: .leading, spacing: 2) {
+                Text(growthName(entry)).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
+                Text(growthDetail(entry)).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1)
+            }
+            Spacer(minLength: 10)
+            VStack(alignment: .trailing, spacing: 2) {
+                Text("+\(ByteFormat.string(entry.growth))").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.amber).monospacedDigit()
+                if showSize {
+                    Text("共 \(ByteFormat.string(entry.bytes))").font(.system(size: 12)).foregroundStyle(Theme.ink3).monospacedDigit()
+                }
+            }
+            growthAction(entry).frame(width: 78, alignment: .trailing)
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+        .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 58) }
+    }
+
+    private func growthName(_ entry: SpaceGrowth.Entry) -> String {
+        switch entry.source {
+        case .item(let item): ItemPresentation.info(for: item).title
+        case .chat(let chat): chat.name
+        }
+    }
+
+    /// The first sentence of the item's note says what it is ("Codex 的缓存，下次使用时会重新生成").
+    private func growthDetail(_ entry: SpaceGrowth.Entry) -> String {
+        switch entry.source {
+        case .item(let item): String(item.note.split(separator: "。").first ?? Substring(shortPath(item.url)))
+        case .chat: "聊天记录、图片和文件"
+        }
+    }
+
+    @ViewBuilder
+    private func growthAction(_ entry: SpaceGrowth.Entry) -> some View {
+        switch entry.source {
+        case .item(let item) where item.kind == .cache && item.canTrash:
+            Button("清理") { store.reviewCleanup(only: [item.id]) }
+                .buttonStyle(ToolbarButtonStyle(tinted: true))
+                .disabled(store.isCleaning)
+        case .item:
+            Text("仅显示大小").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+        case .chat(let chat):
+            Button("查看方法") {
+                withAnimation(.easeOut(duration: 0.15)) {
+                    store.selectCategory(.chat)
+                    store.selectedChatID = chat.id
+                }
+            }
+            .buttonStyle(ToolbarButtonStyle(tinted: true))
+        }
+    }
+
+    /// The full report: how free space moved, then everything that grew, largest first.
+    private func growthPage(_ growth: SpaceGrowth) -> some View {
+        let cleanable: [ScanItem] = growth.entries.compactMap {
+            if case .item(let item) = $0.source, item.kind == .cache, item.canTrash { return item }
+            return nil
+        }
+        let cleanBytes = ScanStore.sum(cleanable)
+        let date = growth.since.formatted(.dateTime.month(.defaultDigits).day())
+        return ScrollView {
+            GlassGroup {
+                VStack(alignment: .leading, spacing: 14) {
+                    PageHeader(symbol: "chart.line.downtrend.xyaxis", tint: Theme.amber, title: "空间变化",
+                               subtitle: "与 \(date) 的快速扫描对比，按增加的大小排列") {
+                        if !cleanable.isEmpty {
+                            Button { store.reviewCleanup(only: Set(cleanable.map(\.id))) } label: {
+                                if store.isCleaning {
+                                    HStack(spacing: 8) {
+                                        ProgressView().controlSize(.small).tint(.white)
+                                        Text("正在清理 \(store.cleanedCount)/\(store.itemsToClean.count)").monospacedDigit()
+                                    }
+                                } else {
+                                    Text("清理 \(ByteFormat.string(cleanBytes))")
+                                }
+                            }
+                            .buttonStyle(HeroButtonStyle())
+                            .disabled(store.isCleaning)
+                        }
+                    }
+                    banners
+                    growthTrend(growth)
+                    VStack(spacing: 0) {
+                        ForEach(growth.entries) { growthRow($0, showSize: true) }
+                        if growth.unexplained >= 1_000_000_000 {
+                            HStack(spacing: 12) {
+                                IconTile(symbol: "questionmark.folder.fill", tint: Theme.ink3, size: 30)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("其他位置").font(.system(size: 13.5, weight: .medium))
+                                    Text("不在快速扫描范围，如新下载的文件和项目").font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1)
+                                }
+                                Spacer(minLength: 10)
+                                Text("+\(ByteFormat.string(growth.unexplained))").font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink2).monospacedDigit()
+                                Button("完整扫描") { withAnimation(.easeOut(duration: 0.15)) { store.selectLocation(home, quick: false) } }
+                                    .buttonStyle(ToolbarButtonStyle(tinted: true))
+                                    .frame(width: 78, alignment: .trailing)
+                            }
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1).padding(.leading, 58) }
+                        }
+                    }
+                    .padding(.vertical, 4)
+                    .glass()
+                }
+                .padding(.horizontal, 30)
+                .padding(.top, 4)
+                .padding(.bottom, 24)
+            }
+        }
+    }
+
+    /// Free space then and now, and the background check's samples in between when there are any.
+    private func growthTrend(_ growth: SpaceGrowth) -> some View {
+        let samples = store.spaceHistory.filter { $0.date >= growth.since }
+        return HStack(alignment: .center, spacing: 24) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text("可用空间").font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                if let drop = growth.freeDrop {
+                    Text(drop > 0 ? "−\(ByteFormat.string(drop))" : "+\(ByteFormat.string(-drop))")
+                        .font(.system(size: 30, weight: .bold)).foregroundStyle(drop > 0 ? Theme.amber : Theme.blue).monospacedDigit()
+                }
+                if let then = growth.freeThen, let now = growth.freeNow {
+                    Text("\(ByteFormat.string(then)) → \(ByteFormat.string(now))").font(.system(size: 12.5)).foregroundStyle(Theme.ink2).monospacedDigit()
+                }
+            }
+            .frame(minWidth: 170, alignment: .leading)
+            if samples.count >= 2 {
+                Chart {
+                    ForEach(samples, id: \.date) { sample in
+                        AreaMark(x: .value("时间", sample.date), y: .value("可用", Double(sample.free) / 1e9))
+                            .foregroundStyle(Theme.blue.opacity(0.1))
+                            .interpolationMethod(.monotone)
+                        LineMark(x: .value("时间", sample.date), y: .value("可用", Double(sample.free) / 1e9))
+                            .foregroundStyle(Theme.blue)
+                            .interpolationMethod(.monotone)
+                    }
+                    RuleMark(y: .value("提醒线", Double(Self.lowSpaceBytes) / 1e9))
+                        .foregroundStyle(Theme.amber.opacity(0.7))
+                        .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 4]))
+                }
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+                        AxisGridLine().foregroundStyle(Theme.line)
+                        AxisValueLabel { if let gb = value.as(Double.self) { Text("\(Int(gb)) GB") } }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .day)) { _ in
+                        AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
+                    }
+                }
+                .frame(height: 110)
+            } else {
+                Text("小清会在后台每 30 分钟记录一次可用空间，记录满一天后在这里显示变化曲线。")
+                    .font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
+        .glass()
     }
 
     // MARK: Scan detail

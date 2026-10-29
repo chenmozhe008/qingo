@@ -41,6 +41,8 @@ enum SpaceAlert {
         // `QINGO_PRETEND_FREE=<bytes>` checks the notification without filling the disk.
         let free = ProcessInfo.processInfo.environment["QINGO_PRETEND_FREE"].flatMap { Int64($0) } ?? measured
         let pretending = ProcessInfo.processInfo.environment["QINGO_PRETEND_FREE"] != nil
+        let history = SpaceHistory.load()
+        if !pretending { SpaceHistory.record(measured) }
         let defaults = UserDefaults.standard
         let threshold = MainView.lowSpaceBytes
         // Back above the line (with a 1 GB margin so hovering around it does not repeat): the next drop warns again.
@@ -55,7 +57,7 @@ enum SpaceAlert {
 
         let content = UNMutableNotificationContent()
         content.title = "剩余空间较少"
-        content.body = "可用 \(ByteCountFormatter.string(fromByteCount: free, countStyle: .file))。点按以开始快速扫描。"
+        content.body = body(free: free, history: history, now: Date())
         content.sound = .default
         let posted = DispatchSemaphore(value: 0)
         // A fixed id replaces the previous warning instead of piling them up in Notification Center.
@@ -73,6 +75,18 @@ enum SpaceAlert {
         }
         defaults.set(free, forKey: Keys.lastFree)
         defaults.set(Date(), forKey: Keys.lastDate)
+    }
+
+    /// "可用 8.2 GB，3 天内减少 23.1 GB。…" when the history shows a drop worth naming.
+    static func body(free: Int64, history: [SpaceHistory.Sample], now: Date) -> String {
+        let freeText = ByteCountFormatter.string(fromByteCount: free, countStyle: .file)
+        // The oldest sample of the last three days, if it is at least half a day old.
+        if let start = history.first(where: { now.timeIntervalSince($0.date) <= 3 * 86_400 }),
+           now.timeIntervalSince(start.date) >= 12 * 3600, start.free - free >= 2 * gigabyte {
+            let drop = ByteCountFormatter.string(fromByteCount: start.free - free, countStyle: .file)
+            return "可用 \(freeText)，\(SpaceGrowth.spanText(since: start.date, now: now))减少 \(drop)。点按以扫描并查看原因。"
+        }
+        return "可用 \(freeText)。点按以开始快速扫描。"
     }
 
     // MARK: App side

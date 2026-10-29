@@ -57,6 +57,9 @@ struct ScanResult: Codable, Sendable {
     let scannedAt: Date
     /// WeChat / WeCom data size, measured read-only and never offered for cleanup.
     var chatApps: [ChatAppUsage] = []
+    /// Free space as Finder shows it (includes purgeable), the figure the dial and the low-space alert use.
+    /// Absent in results saved before 1.11.
+    var availableBytes: Int64? = nil
 }
 
 struct ChatAppUsage: Codable, Sendable, Identifiable {

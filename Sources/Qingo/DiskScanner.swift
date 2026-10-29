@@ -33,7 +33,9 @@ struct DiskScanner: Sendable {
         let filesystem = try? FileManager.default.attributesOfFileSystem(forPath: root.path)
         let volumeTotal = (filesystem?[.systemSize] as? NSNumber)?.int64Value
         let volumeFree = (filesystem?[.systemFreeSize] as? NSNumber)?.int64Value
-        return ScanResult(root: root, isQuickScan: false, items: items, totalBytes: total, volumeTotalBytes: volumeTotal, volumeFreeBytes: volumeFree, skippedCount: skipped, scannedCount: scanned, scannedAt: Date())
+        var result = ScanResult(root: root, isQuickScan: false, items: items, totalBytes: total, volumeTotalBytes: volumeTotal, volumeFreeBytes: volumeFree, skippedCount: skipped, scannedCount: scanned, scannedAt: Date())
+        result.availableBytes = Self.available(root)
+        return result
     }
 
     func scanKnownCaches(onProgress: @Sendable (ScanProgress) -> Void = { _ in }) throws -> ScanResult {
@@ -53,10 +55,16 @@ struct DiskScanner: Sendable {
         }
         items.sort { $0.bytes > $1.bytes }
         let filesystem = try? FileManager.default.attributesOfFileSystem(forPath: root.path)
-        return ScanResult(root: root, isQuickScan: true, items: items, totalBytes: total,
-                          volumeTotalBytes: (filesystem?[.systemSize] as? NSNumber)?.int64Value,
-                          volumeFreeBytes: (filesystem?[.systemFreeSize] as? NSNumber)?.int64Value,
-                          skippedCount: skipped, scannedCount: scanned, scannedAt: Date())
+        var result = ScanResult(root: root, isQuickScan: true, items: items, totalBytes: total,
+                                volumeTotalBytes: (filesystem?[.systemSize] as? NSNumber)?.int64Value,
+                                volumeFreeBytes: (filesystem?[.systemFreeSize] as? NSNumber)?.int64Value,
+                                skippedCount: skipped, scannedCount: scanned, scannedAt: Date())
+        result.availableBytes = Self.available(root)
+        return result
+    }
+
+    static func available(_ url: URL) -> Int64? {
+        (try? url.resourceValues(forKeys: [.volumeAvailableCapacityForImportantUsageKey]))?.volumeAvailableCapacityForImportantUsage
     }
 
     private func walk(_ url: URL, root: URL, rootDevice: UInt64, depth: Int, insideProject: Bool, items: inout [ScanItem], skipped: inout Int, scanned: inout Int, onProgress: @Sendable (ScanProgress) -> Void) throws -> Int64 {

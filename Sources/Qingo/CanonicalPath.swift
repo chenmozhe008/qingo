@@ -15,4 +15,12 @@ enum AppHome {
     static let url: URL = ProcessInfo.processInfo.environment["QINGO_HOME"].map { URL(fileURLWithPath: $0, isDirectory: true) }
         ?? FileManager.default.homeDirectoryForCurrentUser
     static var isDemo: Bool { ProcessInfo.processInfo.environment["QINGO_HOME"] != nil }
+
+    /// Saved scan results and the free-space history. Tests point it at a temporary folder (`QINGO_RESULTS_DIR`).
+    static var resultsDirectory: URL {
+        let directory = ProcessInfo.processInfo.environment["QINGO_RESULTS_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Qingo/results")
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
 }

@@ -173,7 +173,17 @@
 - 点通知：`AppDelegate` 收到 → `ScanStore.quickScanFromAlert()`（关掉工具页和关于，开始快速扫描；正在扫描或清理就只把窗口叫到前面）。App 还没建好 store 时先记 `SpaceAlert.openPending`
 - 开关：菜单「小清 › 剩余空间较少时提醒」，默认开；首次启动会弹系统通知授权。用户手动打开时如果通知被拒，跳系统设置的通知页。演示模式（`QINGO_HOME`）不注册、不弹授权
 - **实测（2026-10-29）**：App 必须在 `/Applications` 或 `~/Applications` 这类正常位置，放在项目 `tmp/` 里系统直接拒通知权限；开发证书签名下通知、注册、点击回调都通。验证后台任务：`launchctl print gui/$(id -u)/io.github.chenmozhe008.qingo.space-check`；验证通知：`QINGO_PRETEND_FREE=8000000000 ~/Applications/小清.app/Contents/MacOS/Qingo --check-space`（假装只剩 8 GB；发过一次后 24 小时内不再发，重测先 `defaults delete io.github.chenmozhe008.qingo spaceAlertLastDate`）。这个模式会打印通知授权状态：`authorization: 1` 是被拒（通知发了但不显示，10-29 测试时就是授权框被点了「不允许」），去系统设置 › 通知 › 小清打开
-- 下一步（用户已同意，先出效果图再做）：**增长报告**。后台顺便记剩余空间，24 小时少了 10 GB 以上也提醒；点开后的快速扫描跟上次结果对比，列「比上次多出」的项（按增长排）。只覆盖快速扫描的位置，别处要完整扫描
+
+## 空间变化报告（2026-10-29 用户看效果图 `output/mockups/r-growth/` 后定：A 卡片 + 点进去是 B 的完整页）
+
+- 用户原话：「突然间哪一块集聚的占空间，你会有个分析，哪个软件、什么原因导致的」
+- 总览：`SpaceGrowth.isNotable`（增长项合计 ≥ 1 GB 或可用空间少了 ≥ 5 GB）时，在清理按钮下面出一张卡：标题「N 天内可用空间减少 X」+ 增长最多的 3 项（最小窗口 2 项）+「查看报告 ›」。只在显示快速扫描结果时有
+- 报告页（`store.showingGrowth`，子页带「返回总览」，**左栏不加行**：左栏高度是卡死的）：页头 + 可用空间曲线卡 + 全部增长项（≥ 200 MB）+「其他位置」（可用空间减少量 − 所有项增长之和，≥ 1 GB 才列，按钮去完整扫描）
+- 每行：名称、说明取 `note` 第一句、增长量（琥珀）、「共 X」；能清的「清理」（`reviewCleanup(only:)`，只清这一项，**清的是整项不只是增长部分**）、只读数据写「仅显示大小」、微信「查看方法」
+- 对比基准：`results/quick-baseline`。新快速扫描覆盖旧结果前，旧结果满 12 小时才替换基准（`SpaceGrowth.nextBaseline`），否则几分钟前扫过一次就什么都对比不出来。清理后存回结果不动基准
+- 口径：两边都有 `availableBytes`（访达同款，1.12 起扫描时记录）就用它，否则都用 `volumeFreeBytes`，**不混用**
+- 曲线：后台检查每 30 分钟往 `results/space-history.json` 记一次（留 14 天），记录不满两点时显示一句说明。通知正文在 3 天内少了 ≥ 2 GB 时带上「N 天内减少 X」
+- 验证：拷一份 results 到项目 `tmp/`，造一个 3 天前的 `cXVpY2stYmFzZWxpbmU=.json`（"quick-baseline" 的 base64）和 history，`open -n -g --env QINGO_RESULTS_DIR=<目录> dist/小清.app --args --growth --snapshot=…`；**要用 open 起 App**，直接跑可执行文件没有完全磁盘访问权限，截出来不准
 
 ## 清理结果提示
 

@@ -15,8 +15,16 @@ final class ScanStore: ObservableObject {
             var buckets: [ItemFilter: [ScanItem]] = [:]
             for category in ItemFilter.allCases { buckets[category] = shownItems.filter { category.contains($0) } }
             itemsByCategory = buckets
+            spaceGrowth = result.flatMap { current in
+                guard current.isQuickScan, let baseline = growthBaseline else { return nil }
+                return SpaceGrowth.compare(baseline: baseline, current: current)
+            }
         }
     }
+    /// What grew since an earlier quick scan (`growthBaseline`); nil unless a quick scan is shown.
+    @Published private(set) var spaceGrowth: SpaceGrowth?
+    /// The quick scan the report compares against, saved as "quick-baseline" (see `SpaceGrowth.nextBaseline`).
+    private var growthBaseline: ScanResult?
     /// Cleanable items below this are not listed or cleaned (tests set 0 for tiny fixtures; set before `result`).
     var minShownBytes: Int64 = 1_000_000
     private(set) var shownItems: [ScanItem] = []
@@ -129,6 +137,7 @@ final class ScanStore: ObservableObject {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
         refreshFullDiskAccess()
         appearance.apply()
+        growthBaseline = loadSaved(key: Self.baselineKey)
         loadLastResult()
         uninstaller.showCachedList()
         SpaceAlert.sync()
@@ -163,6 +172,8 @@ final class ScanStore: ObservableObject {
            let category = ItemFilter(rawValue: raw) {
             selectCategory(category)
         }
+        // `--growth`: open the space-change report (needs a notable change against the comparison scan).
+        if arguments.contains("--growth"), spaceGrowth != nil { showGrowth() }
         // `--scan-detail`: open the shown location's own page instead of the overview.
         if arguments.contains("--scan-detail") { showScanDetail() }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
@@ -303,7 +314,11 @@ final class ScanStore: ObservableObject {
     /// A category page's button only cleans that category (picking a large file must not also clean caches).
     @Published private(set) var cleanupScope: ItemFilter?
 
+    /// Items picked from the space-change report: cleaned on their own, whatever else is selected.
+    @Published private(set) var cleanupOnly: Set<URL>?
+
     var itemsToClean: [ScanItem] {
+        if let only = cleanupOnly { return shownItems.filter { only.contains($0.id) && $0.kind == .cache && $0.canTrash } }
         guard let scope = cleanupScope else { return selectedCleanupItems }
         return selectedCleanupItems.filter { scope.contains($0) }
     }
@@ -313,8 +328,9 @@ final class ScanStore: ObservableObject {
         return selectedCleanupItems.filter { category.contains($0) }
     }
 
-    func reviewCleanup(scope: ItemFilter? = nil) {
+    func reviewCleanup(scope: ItemFilter? = nil, only: Set<URL>? = nil) {
         cleanupScope = scope
+        cleanupOnly = only
         guard !itemsToClean.isEmpty, !isCleaning else { return }
         hoveredID = nil
         confirmDecided = false
@@ -337,6 +353,22 @@ final class ScanStore: ObservableObject {
         tool = nil
         showingOverview = true
         showingScanDetail = false
+        showingGrowth = false
+        selectedID = nil
+    }
+
+    /// The space-change report, opened from the overview's card.
+    @Published var showingGrowth = false
+
+    /// Free-space samples for the report's chart, read when the report opens.
+    @Published private(set) var spaceHistory: [SpaceHistory.Sample] = []
+
+    func showGrowth() {
+        spaceHistory = SpaceHistory.load()
+        tool = nil
+        showingOverview = false
+        showingScanDetail = false
+        showingGrowth = true
         selectedID = nil
     }
 
@@ -355,6 +387,7 @@ final class ScanStore: ObservableObject {
     func showScanDetail() {
         tool = nil
         showingOverview = false
+        showingGrowth = false
         showingScanDetail = true
         selectedID = nil
     }
@@ -363,6 +396,7 @@ final class ScanStore: ObservableObject {
         tool = nil
         showingOverview = false
         showingScanDetail = false
+        showingGrowth = false
         filter = category
         selectedID = nil
     }
@@ -552,6 +586,7 @@ final class ScanStore: ObservableObject {
                 self.isScanning = false
                 switch output {
                 case .success(let value):
+                    if isQuick { self.rotateGrowthBaseline() }
                     self.result = value
                     self.pickAllSafe()
                     // Stay on the category being viewed; a rescan should not move the user elsewhere.
@@ -580,17 +615,25 @@ final class ScanStore: ObservableObject {
 
     // MARK: Saved results (one per location)
 
-    private var resultsDirectory: URL {
-        // Tests point this at a temporary folder so their throwaway scans never land in the real results.
-        let directory = ProcessInfo.processInfo.environment["QINGO_RESULTS_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appending(path: "Qingo/results")
-        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        return directory
-    }
+    private var resultsDirectory: URL { AppHome.resultsDirectory }
 
     private func resultURL(for key: String) -> URL {
         let name = Data(key.utf8).base64EncodedString().replacingOccurrences(of: "/", with: "_")
         return resultsDirectory.appending(path: "\(name).json")
+    }
+
+    private static let baselineKey = "quick-baseline"
+
+    private func loadSaved(key: String) -> ScanResult? {
+        (try? Data(contentsOf: resultURL(for: key))).flatMap { try? JSONDecoder().decode(ScanResult.self, from: $0) }
+    }
+
+    /// Before a new quick scan overwrites the saved one, the saved one may become what the report compares against.
+    private func rotateGrowthBaseline() {
+        let next = SpaceGrowth.nextBaseline(current: growthBaseline, previous: loadSaved(key: "quick"), now: Date())
+        guard let next, next.scannedAt != growthBaseline?.scannedAt else { return }
+        growthBaseline = next
+        if let data = try? JSONEncoder().encode(next) { try? data.write(to: resultURL(for: Self.baselineKey), options: .atomic) }
     }
 
     private func saveResult(_ value: ScanResult) {
@@ -642,7 +685,8 @@ final class ScanStore: ObservableObject {
         result = ScanResult(root: value.root, isQuickScan: value.isQuickScan, items: checkedItems,
                             totalBytes: max(value.totalBytes - (Self.sum(value.items) - Self.sum(present)), 0), volumeTotalBytes: value.volumeTotalBytes,
                             volumeFreeBytes: value.volumeFreeBytes, skippedCount: value.skippedCount,
-                            scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps)
+                            scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps,
+                            availableBytes: value.availableBytes)
         pickAllSafe()
         refreshLargeFileSummary()
         // Reopen on the category last viewed, if it is still shown.
@@ -738,7 +782,8 @@ final class ScanStore: ObservableObject {
         let updated = ScanResult(root: value.root, isQuickScan: value.isQuickScan, items: all,
                                  totalBytes: total.overflow ? Int64.max : total.partialValue, volumeTotalBytes: value.volumeTotalBytes,
                                  volumeFreeBytes: value.volumeFreeBytes, skippedCount: value.skippedCount,
-                                 scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps)
+                                 scannedCount: value.scannedCount, scannedAt: value.scannedAt, chatApps: value.chatApps,
+                                 availableBytes: value.availableBytes)
         result = updated
         saveResult(updated)
     }
