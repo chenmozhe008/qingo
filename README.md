@@ -8,6 +8,8 @@
 
 面向影视创作者与开发者的 Mac 清理工具。识别剪映、达芬奇、Adobe 系列等剪辑软件，以及 Codex、Claude Code、Cursor 等 AI 工具的缓存，一键清理，不影响项目、素材与对话。
 
+简体中文 | [English](README.en.md)
+
 ![License: MIT](https://img.shields.io/badge/license-MIT-blue)
 ![Platform](https://img.shields.io/badge/macOS-14%2B-black?logo=apple)
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-555)
