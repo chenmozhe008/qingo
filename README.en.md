@@ -33,7 +33,10 @@ Qingo (小清) is a native SwiftUI app with light, dark and automatic appearance
 - **Video and design software**: CapCut (Jianying), DaVinci Resolve, After Effects, Premiere Pro, Final Cut Pro, Blender and more. CapCut caches, the AE disk cache and the Adobe media cache are cleared directly; for DaVinci Resolve and Final Cut Pro render caches, Qingo shows where to clear them inside the app. Projects, drafts and footage are kept
 - **One-click cleaning**: only caches that rebuild automatically are listed, all selected by default. Cleaning works even while the apps are running. Files are moved to the Trash and can be restored; the Trash is never emptied automatically
 - **Developer caches**: build caches in your code folders are listed per project on a separate page, never mixed into one-click cleaning
-- **Open source and offline**: every cleaning rule is in the source code. No network access, no data upload; scan results stay on your Mac
+- **Low-space alerts**: a system notification when free space drops below 10 GB, even while Qingo is closed; clicking it opens Qingo and starts a quick scan
+- **Space change report**: when free space drops sharply, the overview lists what grew most since an earlier quick scan, with a chart of free space over recent days; grown caches can be cleaned directly
+- **One-click update**: new versions are downloaded, verified and installed inside Qingo, which then reopens
+- **Open source**: every cleaning rule is in the source code. Qingo only goes online to check for updates (at most once a day, can be turned off); no data is uploaded and scan results stay on your Mac
 
 ## Screenshots
 
@@ -66,7 +69,7 @@ Requires macOS 14 Sonoma or later on Apple silicon (M1 or newer).
    ```
    xattr -dr com.apple.quarantine /Applications/小清.app
    ```
-3. To include WeChat and other protected folders in scans, enable Qingo under **System Settings → Privacy & Security → Full Disk Access**
+3. To include WeChat and other protected folders in scans, enable Qingo under **System Settings → Privacy & Security → Full Disk Access**. Because Qingo is not notarized, this needs to be turned on again after each update
 
 ## Safety
 
