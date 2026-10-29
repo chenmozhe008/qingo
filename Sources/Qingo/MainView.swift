@@ -8,6 +8,7 @@ private enum BrandAsset {
 
 struct MainView: View {
     @ObservedObject var store: ScanStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var hasResult: Bool { store.result != nil && !store.isScanning }
     var showSidebar: Bool { !store.isScanning && (store.result != nil || store.hasHistory || store.tool != nil) }
@@ -189,18 +190,25 @@ struct MainView: View {
             VStack(spacing: 0) {
                 // Same dial as the overview; a band of lit ticks sweeps round while scanning.
                 ZStack {
-                    // The overview's ring, turning: same thickness and blue, so scanning and result feel like one thing.
-                    TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
-                        let angle = context.date.timeIntervalSinceReferenceDate * 220
+                    // The overview's ring, turning, built like the dev-cache scan: a solid arc plus a thin inner arc turning the other way.
+                    TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                        let time = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
                         ZStack {
                             Circle().stroke(Theme.blue.opacity(0.12), lineWidth: 30)
                             Circle()
                                 .trim(from: 0, to: 0.32)
-                                .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Color(red: 0.50, green: 0.84, blue: 0.78), Theme.blue],
+                                .stroke(AngularGradient(colors: [Theme.blue.opacity(0), Theme.blue.opacity(0.55), Theme.blue],
                                                         center: .center, startAngle: .degrees(0), endAngle: .degrees(115)),
                                         style: StrokeStyle(lineWidth: 30, lineCap: .round))
-                                .rotationEffect(.degrees(angle))
+                                .rotationEffect(.degrees(time * 200))
                                 .shadow(color: Theme.blue.opacity(0.3), radius: 8)
+                            Circle()
+                                .trim(from: 0, to: 0.18)
+                                .stroke(AngularGradient(colors: [Theme.cyan.opacity(0), Theme.cyan],
+                                                        center: .center, startAngle: .degrees(0), endAngle: .degrees(65)),
+                                        style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                                .rotationEffect(.degrees(-time * 120))
+                                .padding(34)
                         }
                         .padding(15)
                     }
@@ -223,7 +231,9 @@ struct MainView: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: 360)
                     .padding(.top, 8)
-                ScanProgressBar(fraction: store.estimatedProgress)
+                ScanProgressBar(fraction: store.estimatedProgress,
+                                fill: LinearGradient(colors: [Theme.blue, Color(red: 0.50, green: 0.84, blue: 0.78)], startPoint: .leading, endPoint: .trailing),
+                                glow: Theme.cyan)
                     .frame(width: 300, height: 6)
                     .padding(.top, 18)
                 Button { store.cancelScan() } label: { Label("停止扫描", systemImage: "stop.circle.fill") }
