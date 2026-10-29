@@ -97,7 +97,7 @@
   - 内容自查：同一画面里的图标不重复（AE 和 Pr 要分开）、字幕和配音逐字一致、用词对一遍上面的界面用词表
   - 把用户之前每一轮的反馈当验收清单逐条对一遍再交付
 - **版本号（2026-10-27 用户定：「别的工具每一版都有编号，不能每次都用一个」）**：每次装到用户电脑或发布，都先升版本号（`script/build_and_run.sh` 的 `APP_VERSION`）。修问题、改文字升第三位（1.9.1 → 1.9.2），加功能升第二位（1.9 → 1.10）；CHANGELOG 每个版本单独一节；每个发布版打 `v<版本>` 标签、单独一个 GitHub Release，已发布的版本不改。宣传视频等交付物也按 v1、v2 另存，不覆盖
-- **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，临时签名（证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases（`gh release create v<版本> … --latest`，说明照上一版的格式：简介 / 下载安装 / 本版更新内容；中间没单独发布的版本，改动并进这一版）。「无法验证开发者」提示去不掉（2026-10-29 用户问过）：要 Apple Developer ID 签名＋公证（开发者账号 99 美元/年），没办就只能在 README 和 Release 里写「隐私与安全性 → 仍要打开」或终端 `xattr -dr com.apple.quarantine /Applications/小清.app`。换图标后 Dock 还显示旧图：`lsregister -f` 这个 App 再 `killall Dock`
+- **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，临时签名（证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases（`gh release create v<版本> … --latest`，说明照上一版的格式：简介 / 下载安装 / 本版更新内容；中间没单独发布的版本，改动并进这一版）。「无法验证开发者」提示去不掉（2026-10-29 用户问过）：要 Apple Developer ID 签名＋公证（开发者账号 99 美元/年），没办就只能在 README 和 Release 里写「隐私与安全性 → 仍要打开」或终端 `xattr -dr com.apple.quarantine /Applications/小清.app`。**2026-10-29 用户定：先不花钱，不办**；以后要办：用户 iPhone「Apple Developer」App 实名申请个人账号 → 生成 Developer ID Application 证书＋App 专用密码 → 改 `package_release.sh`：Developer ID 签名＋hardened runtime → `notarytool submit --wait` → `stapler staple`（本机 notarytool/stapler 在移动硬盘的 Xcode-26.5 里）。代价：证书名是实名，会公开在签名里。换图标后 Dock 还显示旧图：`lsregister -f` 这个 App 再 `killall Dock`
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标
