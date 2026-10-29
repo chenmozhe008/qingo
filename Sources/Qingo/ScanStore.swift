@@ -53,6 +53,12 @@ final class ScanStore: ObservableObject {
             appearance.apply()
         }
     }
+    @Published var spaceAlertEnabled = SpaceAlert.isEnabled {
+        didSet {
+            SpaceAlert.isEnabled = spaceAlertEnabled
+            SpaceAlert.sync(userInitiated: spaceAlertEnabled)
+        }
+    }
     @Published var isCleaning = false
     @Published var cleanedCount = 0
     @Published var filter: ItemFilter = .caches {
@@ -125,6 +131,12 @@ final class ScanStore: ObservableObject {
         appearance.apply()
         loadLastResult()
         uninstaller.showCachedList()
+        SpaceAlert.sync()
+        SpaceAlert.onOpen = { [weak self] in self?.quickScanFromAlert() }
+        if SpaceAlert.openPending {
+            SpaceAlert.openPending = false
+            quickScanFromAlert()
+        }
         // For screenshots without touching the mouse: `open -a … --args --show-about[=反馈]` / `--scan`.
         let arguments = ProcessInfo.processInfo.arguments
         if let about = arguments.first(where: { $0.hasPrefix("--show-about") }) {
@@ -444,6 +456,16 @@ final class ScanStore: ObservableObject {
         setRoot(policy.home)
         quickMode = true
         scan()
+    }
+
+    /// The low-space notification was clicked: bring the window up and start a quick scan,
+    /// unless a scan or cleanup is already running.
+    func quickScanFromAlert() {
+        NSApp.activate()
+        guard !isScanning, !isCleaning else { return }
+        showAbout = false
+        tool = nil
+        scanKnownCaches()
     }
 
     // MARK: Permissions

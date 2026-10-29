@@ -162,6 +162,19 @@
 - 产物沿用 `SafetyPolicy`：构建缓存是第一档（新增 `.turbo`、`.parcel-cache`、`.nuxt`、`.svelte-kit`、`.ruff_cache`、旁边有 build.gradle 的 `.gradle`），`node_modules` / 虚拟环境是第二档；代码不碰
 - 项目按「多久没动」排序（产物和 .git 以外文件的最新修改时间，最久的在前）；项目产物合计 < 5 MB 不列（`DevScanner.minProjectBytes`）；结果存 `results/dev.json`
 
+## 剩余空间提醒（2026-10-29 用户要：「没打开小清时，空间低了也弹提醒，一点就开始快速扫描」）
+
+- 取代用户原来的 shell 监测（`~/.local/bin/disk-monitor.sh`，每天 9:13 一次、点通知只会打开脚本编辑器）。2026-10-29 已 `launchctl bootout` + `disable` 停用，plist 和脚本还在；恢复：`launchctl enable gui/$(id -u)/com.forwardyan.disk-monitor` 再 `bootstrap`。另一个 `auto-clean-disk`（每 3 天静默清白名单缓存）先留着兜底，提醒用稳一两周再决定
+- 检查间隔 30 分钟（2026-10-29 用户同意）：检查只读一次剩余空间、几毫秒，间隔只影响多快发现；打扰次数由下面的去重规则管，别为了「少打扰」把间隔拉长
+- 结构（`SpaceAlert.swift`）：包内后台任务 `Contents/Library/LaunchAgents/io.github.chenmozhe008.qingo.space-check.plist`（打包脚本生成，`BundleProgram` 指向本包），由 `SMAppService.agent` 注册；每 30 分钟和登录时跑 `Qingo --check-space`：不起界面，读 `volumeAvailableCapacityForImportantUsage`，发完通知就退出（`QingoApp.init` 里最先判断，早于迁移和界面）
+- 阈值就是 `MainView.lowSpaceBytes`（10 GB），**不另设可调阈值**，界面变琥珀和发通知同一个口径
+- 什么时候提醒（`SpaceAlert.shouldWarn`）：刚低于阈值提醒一次；之后满 24 小时、或又少了 5 GB 再提醒；回到阈值 +1 GB 以上算恢复，下次低了重新提醒。通知 id 固定，通知中心里不会堆一串
+- 文案：标题「剩余空间较少」（用户定过别说「空间不足」），正文「可用 X。点按以开始快速扫描。」
+- 点通知：`AppDelegate` 收到 → `ScanStore.quickScanFromAlert()`（关掉工具页和关于，开始快速扫描；正在扫描或清理就只把窗口叫到前面）。App 还没建好 store 时先记 `SpaceAlert.openPending`
+- 开关：菜单「小清 › 剩余空间较少时提醒」，默认开；首次启动会弹系统通知授权。用户手动打开时如果通知被拒，跳系统设置的通知页。演示模式（`QINGO_HOME`）不注册、不弹授权
+- **实测（2026-10-29）**：App 必须在 `/Applications` 或 `~/Applications` 这类正常位置，放在项目 `tmp/` 里系统直接拒通知权限；开发证书签名下通知、注册、点击回调都通。验证后台任务：`launchctl print gui/$(id -u)/io.github.chenmozhe008.qingo.space-check`；验证通知：`QINGO_PRETEND_FREE=8000000000 ~/Applications/小清.app/Contents/MacOS/Qingo --check-space`（假装只剩 8 GB；发过一次后 24 小时内不再发，重测先 `defaults delete io.github.chenmozhe008.qingo spaceAlertLastDate`）。这个模式会打印通知授权状态：`authorization: 1` 是被拒（通知发了但不显示，10-29 测试时就是授权框被点了「不允许」），去系统设置 › 通知 › 小清打开
+- 下一步（用户已同意，先出效果图再做）：**增长报告**。后台顺便记剩余空间，24 小时少了 10 GB 以上也提醒；点开后的快速扫描跟上次结果对比，列「比上次多出」的项（按增长排）。只覆盖快速扫描的位置，别处要完整扫描
+
 ## 清理结果提示
 
 - 清理结果走 `CleanupReport`（结构化），不要把系统报错原文拼进 `message`

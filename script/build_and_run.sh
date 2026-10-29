@@ -6,7 +6,7 @@ APP_NAME="小清"
 EXECUTABLE_NAME="Qingo"
 BUNDLE_ID="io.github.chenmozhe008.qingo"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="1.10.6"
+APP_VERSION="1.11.0"
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
 # Without that certificate (e.g. a fresh clone), fall back to ad-hoc signing so the build still runs locally.
 if [[ "$CODESIGN_IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$CODESIGN_IDENTITY"; then
@@ -33,6 +33,23 @@ mkdir -p "$APP_BUNDLE/Contents/Resources"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$APP_BUNDLE/Contents/Resources/AppIcon.icns"
 cp "$ROOT_DIR/Resources/AppIcon-source.png" "$APP_BUNDLE/Contents/Resources/AppIcon-source.png"
 cp "$ROOT_DIR/CHANGELOG.md" "$APP_BUNDLE/Contents/Resources/CHANGELOG.md"
+# Low-space check, registered by the app through SMAppService (see SpaceAlert.swift): every 30 minutes and at login.
+mkdir -p "$APP_BUNDLE/Contents/Library/LaunchAgents"
+cat >"$APP_BUNDLE/Contents/Library/LaunchAgents/$BUNDLE_ID.space-check.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$BUNDLE_ID.space-check</string>
+  <key>BundleProgram</key><string>Contents/MacOS/$EXECUTABLE_NAME</string>
+  <key>ProgramArguments</key><array><string>$EXECUTABLE_NAME</string><string>--check-space</string></array>
+  <key>AssociatedBundleIdentifiers</key><string>$BUNDLE_ID</string>
+  <key>StartInterval</key><integer>1800</integer>
+  <key>RunAtLoad</key><true/>
+  <key>ProcessType</key><string>Background</string>
+</dict>
+</plist>
+PLIST
 BUILD_NUMBER="$(git -C "$ROOT_DIR" rev-list --count HEAD 2>/dev/null || echo 1)"
 
 cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST

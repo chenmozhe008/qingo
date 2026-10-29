@@ -751,7 +751,7 @@ struct MainView: View {
     }
 
     /// Below this much free space the dial and the backdrop turn warm. Ratios mislead on big disks.
-    static let lowSpaceBytes: Int64 = 10 * 1_073_741_824
+    nonisolated static let lowSpaceBytes: Int64 = 10 * 1_073_741_824
 
     // MARK: Overview
 

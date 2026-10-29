@@ -3,9 +3,15 @@ import SwiftUI
 
 @main
 struct QingoApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var store = ScanStore()
 
     init() {
+        // Launched by the background agent: check free space, maybe notify, and quit before any UI exists.
+        if CommandLine.arguments.contains(SpaceAlert.checkArgument) {
+            SpaceAlert.runCheck()
+            exit(0)
+        }
         LegacyMigration.run()
     }
 
@@ -24,6 +30,8 @@ struct QingoApp: App {
         .commands {
             CommandGroup(replacing: .appInfo) {
                 Button("关于小清") { store.showAbout = true }
+                Divider()
+                Toggle("剩余空间较少时提醒", isOn: $store.spaceAlertEnabled)
             }
             CommandMenu("外观") {
                 Picker("外观", selection: $store.appearance) {
