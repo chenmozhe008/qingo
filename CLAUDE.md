@@ -164,7 +164,7 @@
 
 ## 剩余空间提醒（2026-10-29 用户要：「没打开小清时，空间低了也弹提醒，一点就开始快速扫描」）
 
-- 取代用户原来的 shell 监测（`~/.local/bin/disk-monitor.sh`，每天 9:13 一次、点通知只会打开脚本编辑器）。2026-10-29 已 `launchctl bootout` + `disable` 停用，plist 和脚本还在；恢复：`launchctl enable gui/$(id -u)/com.forwardyan.disk-monitor` 再 `bootstrap`。另一个 `auto-clean-disk`（每 3 天静默清白名单缓存）先留着兜底，提醒用稳一两周再决定
+- 取代作者本机原来的 shell 定时监测（一天一次、点通知只会打开脚本编辑器）。那个任务已停用，恢复方法记在作者本地，不进仓库
 - 检查间隔 30 分钟（2026-10-29 用户同意）：检查只读一次剩余空间、几毫秒，间隔只影响多快发现；打扰次数由下面的去重规则管，别为了「少打扰」把间隔拉长
 - 结构（`SpaceAlert.swift`）：包内后台任务 `Contents/Library/LaunchAgents/io.github.chenmozhe008.qingo.space-check.plist`（打包脚本生成，`BundleProgram` 指向本包），由 `SMAppService.agent` 注册；每 30 分钟和登录时跑 `Qingo --check-space`：不起界面，读 `volumeAvailableCapacityForImportantUsage`，发完通知就退出（`QingoApp.init` 里最先判断，早于迁移和界面）
 - 阈值就是 `MainView.lowSpaceBytes`（10 GB），**不另设可调阈值**，界面变琥珀和发通知同一个口径
