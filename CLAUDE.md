@@ -192,7 +192,7 @@
 - **一键更新（10-29 用户：「跳到 GitHub 再下载不太好，直接进度条、完了就安装」）**：下载 Release 里 `Qingo-*.zip`（按钮变进度条）→ 对 GitHub 资产的 `digest`（sha256）→ `ditto -x -k` 解压 → 核对 bundle id、版本号、`codesign --verify --deep --strict` → 去 quarantine → `trashItem` 把**正在运行的**自己移到废纸篓（系统允许）→ 新版移到原位置 → 起一个 sh 等本进程退出后 `open` → `NSApp.terminate`。替换失败把旧版挪回去；任何一步失败弹窗给「前往下载」兜底。App 自己下载的文件不带 quarantine，所以 Gatekeeper 不拦
 - **发版附件名必须是 `Qingo-<版本>.zip`、tag 必须是 `v<版本>`**，否则一键更新找不到包 / 比较不出版本
 - 已知：发布版是临时签名，每个版本 cdhash 不同，**更新后「完全磁盘访问」要重新开**（手动替换也一样；只有 Developer ID 签名能解决）
-- 端到端测试（10-29 跑通）：打一份旧版本号的包放项目 `tmp/`，`package_release.sh` 打新版 zip，写一个假的 releases/latest JSON（资产地址用 file://，路径有空格要编码），`open -n -g --env QINGO_UPDATE_FEED=<file:// JSON> --env QINGO_AUTO_INSTALL=1 <旧版.app>`（AUTO_INSTALL 跳过确认弹窗，只给测试用）；测完删 `updateLatestRelease`/`updateLastCheck` 两个 defaults
+- 端到端测试（10-29 跑通）：打一份旧版本号的包放项目 `tmp/`，`package_release.sh` 打新版 zip，写一个假的 releases/latest JSON（资产地址用 file://，路径有空格要编码），`open -n -g --env QINGO_UPDATE_FEED=<file:// JSON> --env QINGO_AUTO_INSTALL=1 <旧版.app>`（AUTO_INSTALL 跳过确认弹窗，只给测试用）；测完删 `updateLatestRelease`/`updateLastCheck` 两个 defaults。**旧版副本用开发证书签名**（别 `CODESIGN_IDENTITY=-`）：临时签名的副本在本机跑会被当成新 App，反复弹权限框（10-29 闪电全能下载踩过）；测完立刻关掉、`lsregister -u` 注销、移到废纸篓
 - 菜单「小清 › 检查更新…」（有新版走同一个更新弹窗）、「自动检查更新」开关（默认开）
 - 版本比较按数字逐段（1.10 > 1.9），开发版不提示；**发 Release 时 tag 必须是 `v<版本>`**，否则比较不出来
 - 验证：`open -n -g --env QINGO_PRETEND_UPDATE=9.9.9 dist/小清.app --args --snapshot=…` 假装有新版
