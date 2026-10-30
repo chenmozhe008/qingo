@@ -51,7 +51,7 @@ enum AppInfo {
 
     static func sendFeedback() {
         let subject = "小清反馈 v\(version)"
-        let body = "\n\n（请在此描述遇到的问题，并附上截图）\n\(diagnostics)"
+        let body = "\n\n（请在此描述遇到的问题，并附上截图）\n\n\(Diagnostics.report())"
         var components = URLComponents()
         components.scheme = "mailto"
         components.path = feedbackEmail
@@ -451,16 +451,26 @@ struct AboutView: View {
                 Text("反馈时请尽量包括").font(.system(size: 13, weight: .semibold)).foregroundStyle(Theme.ink2)
                 tip("1", "操作步骤，例如扫描的位置、点击的按钮")
                 tip("2", "实际看到的结果，最好附截图（按 ⇧⌘4 可截取区域）")
-                tip("3", "版本信息（「发反馈邮件」会自动附上，也可在下方复制）")
+                tip("3", "诊断信息（「发反馈邮件」会自动附上，也可在下方复制）")
                 VStack(alignment: .leading, spacing: 10) {
-                    Text(AppInfo.diagnostics)
-                        .font(.system(size: 13, design: .monospaced))
+                    Text("诊断信息仅用于排查问题：版本、系统、Mac 型号、可用空间、最近一次清理移到废纸篓的项目，以及近 3 天的崩溃与无响应记录名称。不包含文件内容，发送前可在此查看全部内容。")
+                        .font(.system(size: 13))
                         .foregroundStyle(Theme.ink2)
                         .fixedSize(horizontal: false, vertical: true)
-                        .textSelection(.enabled)
-                    let infoCopied = store.copiedText == AppInfo.diagnostics
-                    Button { store.copy(AppInfo.diagnostics) } label: {
-                        Label(infoCopied ? "已复制" : "复制版本信息", systemImage: infoCopied ? "checkmark" : "doc.on.doc")
+                    ScrollView {
+                        Text(store.diagnosticsText)
+                            .font(.system(size: 12, design: .monospaced))
+                            .foregroundStyle(Theme.ink2)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .textSelection(.enabled)
+                            .padding(10)
+                    }
+                    .frame(maxHeight: 180)
+                    .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(Theme.fill(0.06)))
+                    let infoCopied = !store.diagnosticsText.isEmpty && store.copiedText == store.diagnosticsText
+                    Button { store.copy(store.diagnosticsText) } label: {
+                        Label(infoCopied ? "已复制" : "复制诊断信息", systemImage: infoCopied ? "checkmark" : "doc.on.doc")
                             .foregroundStyle(infoCopied ? Theme.green : Theme.ink)
                     }
                         .buttonStyle(GhostButtonStyle())
@@ -471,6 +481,7 @@ struct AboutView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .glass(radius: 12)
         }
+        .onAppear { store.refreshDiagnostics() }
     }
 
     private func tip(_ number: String, _ text: String) -> some View {

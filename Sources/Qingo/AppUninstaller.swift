@@ -560,6 +560,9 @@ final class UninstallStore: ObservableObject {
                         self.undoable = [(app.id, trashedApp)] + result.moved
                         let bytes = (traces.first { $0.kind == .app }?.bytes ?? 0) + leftovers.filter { t in result.moved.contains { $0.original == t.url } }.reduce(0) { $0 + $1.bytes }
                         self.report = CleanupReport(movedCount: result.moved.count + 1, movedBytes: bytes, failures: result.failures)
+                        let sizes = Dictionary(traces.map { ($0.url.path, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+                        CleanupLog.record("卸载 \(app.name)", moved: [(app.id, traces.first { $0.kind == .app }?.bytes ?? 0)]
+                                          + result.moved.map { ($0.original, sizes[$0.original.path] ?? 0) }, failedCount: result.failures.count)
                         self.apps.removeAll { $0.id == app.id }
                         self.traces[app.id] = nil
                         self.selectedID = nil
@@ -587,6 +590,9 @@ final class UninstallStore: ObservableObject {
                 let movedPaths = Set(result.moved.map(\.original.path))
                 let bytes = traces.filter { movedPaths.contains($0.url.path) }.reduce(0) { $0 + $1.bytes }
                 self.report = CleanupReport(movedCount: result.moved.count, movedBytes: bytes, failures: result.failures)
+                let sizes = Dictionary(traces.map { ($0.url.path, $0.bytes) }, uniquingKeysWith: { first, _ in first })
+                CleanupLog.record("清理残留", moved: result.moved.map { ($0.original, sizes[$0.original.path] ?? 0) },
+                                  failedCount: result.failures.count)
                 self.orphans = self.orphans?.compactMap { group in
                     let left = group.traces.filter { !movedPaths.contains($0.url.path) }
                     return left.isEmpty ? nil : OrphanGroup(id: group.id, traces: left)

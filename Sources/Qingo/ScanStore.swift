@@ -87,6 +87,10 @@ final class ScanStore: ObservableObject {
     @Published var selectedChatID: String?
     /// Text just copied from the About page; its button reads "已复制" briefly.
     @Published var copiedText: String?
+    /// Built when the feedback page opens, so the page shows exactly what gets copied or mailed.
+    @Published var diagnosticsText = ""
+
+    func refreshDiagnostics() { diagnosticsText = Diagnostics.report() }
 
     func copy(_ text: String) {
         AppInfo.copy(text)
@@ -741,6 +745,7 @@ final class ScanStore: ObservableObject {
                 self.updateResult(removing: removedIDs, adding: [])
                 self.failureReasons = Dictionary(outcome.failures.map { ($0.id, $0.reason) }, uniquingKeysWith: { first, _ in first })
                 self.undoable = outcome.moved
+                CleanupLog.record("清理", moved: outcome.moved.map { ($0.item.url, $0.item.bytes) }, failedCount: outcome.failures.count)
                 if outcome.moved.isEmpty && outcome.failures.isEmpty {
                     self.message = "所选项目已不存在，已从列表中移除"
                 } else {
