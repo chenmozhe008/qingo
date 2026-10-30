@@ -431,14 +431,17 @@ struct SpaceRing: View {
             // caps included, exactly as long as the used share, so a nearly full disk never laps over its start.
             let cap = line / (.pi * (size - line)) / 2
             let end = max(min(used, 0.99) - cap, cap + 0.001)
+            // A short arc spreads the gradient over a quarter turn, so a dot is one colour rather than split in two.
             ZStack {
                 Circle().stroke(colors[1].opacity(0.13), lineWidth: line)
+                if used > 0 {
                 Circle()
                     .trim(from: cap, to: end)
-                    .stroke(AngularGradient(colors: colors, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * used)),
+                    .stroke(AngularGradient(colors: colors, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * max(used, 0.25))),
                             style: StrokeStyle(lineWidth: line, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .shadow(color: colors[1].opacity(0.28), radius: size * 0.03, y: size * 0.01)
+                }
                 // Label, figure with a smaller unit, and the capacity in a quiet capsule.
                 VStack(spacing: size * 0.02) {
                     Text("现在可用").font(.system(size: 12.5, weight: .semibold)).tracking(1).foregroundStyle(Theme.ink3)
