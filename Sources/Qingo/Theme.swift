@@ -427,15 +427,16 @@ struct SpaceRing: View {
         GeometryReader { proxy in
             let size = min(proxy.size.width, proxy.size.height)
             let line = size * 0.105
-            // Round caps reach half a line past each end; when the free gap cannot hold them, the end would
-            // lap over the start (a nearly full disk), so the arc ends flat and the gap shows as it is.
-            let capsFit = 1 - used > line / (.pi * (size - line)) + 0.015
+            // Round caps reach half a line past each end. Pulling both ends in by that much keeps the drawn arc,
+            // caps included, exactly as long as the used share, so a nearly full disk never laps over its start.
+            let cap = line / (.pi * (size - line)) / 2
+            let end = max(min(used, 0.99) - cap, cap + 0.001)
             ZStack {
                 Circle().stroke(colors[1].opacity(0.13), lineWidth: line)
                 Circle()
-                    .trim(from: 0, to: used)
+                    .trim(from: cap, to: end)
                     .stroke(AngularGradient(colors: colors, center: .center, startAngle: .degrees(0), endAngle: .degrees(360 * used)),
-                            style: StrokeStyle(lineWidth: line, lineCap: capsFit ? .round : .butt))
+                            style: StrokeStyle(lineWidth: line, lineCap: .round))
                     .rotationEffect(.degrees(-90))
                     .shadow(color: colors[1].opacity(0.28), radius: size * 0.03, y: size * 0.01)
                 // Label, figure with a smaller unit, and the capacity in a quiet capsule.
