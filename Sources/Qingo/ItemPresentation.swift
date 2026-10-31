@@ -108,6 +108,10 @@ enum ItemPresentation {
             }
             if let running { return running }
         }
+        // A chat app's cache: the owner is the app itself, not a folder name to look up.
+        if let chat = ChatCache.part(for: item.url, home: AppHome.url) {
+            return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == chat.bundleID }
+        }
         let alias = aliases[item.name]?.bundleID
         let applicationURL = alias.flatMap { NSWorkspace.shared.urlForApplication(withBundleIdentifier: $0) }
             ?? application(for: item.name)
@@ -126,6 +130,10 @@ enum ItemPresentation {
         if item.kind == .largeFile || item.kind == .project {
             // Real document icons (Keynote, PPT, PSD, Final Cut library…) read better than a generic glyph.
             return Info(title: name, icon: NSWorkspace.shared.icon(forFile: item.url.path), symbol: symbol(for: item))
+        }
+        if item.kind == .cache, let chat = ChatCache.part(for: item.url, home: AppHome.url) {
+            return Info(title: "\(chat.appName) \(chat.title)", icon: appIcon(bundleID: chat.bundleID),
+                        symbol: "bubble.left.and.bubble.right.fill")
         }
         if item.kind == .cache, let found = application(for: name) {
             // A helper inside another app (腾讯会议's UpdateServer) is shown as that app.

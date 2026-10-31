@@ -86,7 +86,7 @@ private enum Comparison {
         ("可恢复", [c(.good, "移到废纸篓，可恢复"), c(.none, "一键清理"), c(.none, "一键清理"), c(.none, "一键清理"), c(.bad, "直接永久删除")]),
         ("AI Coding 与影视工具", [c(.good, "按工具区分缓存和作品"), c(.none, "通用应用缓存、Xcode 垃圾"), c(.none, "—"), c(.none, "应用缓存，含 Final Cut、Adobe"), c(.bad, "不区分")]),
         ("代码开源", [c(.good, "MIT 开源"), c(.bad, "闭源"), c(.good, "开源"), c(.bad, "闭源"), c(.bad, "闭源")]),
-        ("微信 / 企业微信", [c(.good, "显示占用空间，提供微信内清理路径"), c(.none, "—"), c(.good, "扫描并清理聊天文件"), c(.none, "—"), c(.partial, "只显示文件夹大小")]),
+        ("常用通讯", [c(.good, "缓存可直接清理，聊天记录不删"), c(.none, "—"), c(.good, "扫描并清理聊天文件"), c(.none, "—"), c(.partial, "只显示文件夹大小")]),
         ("逐项说明", [c(.good, "中文名称、可否清理及原因"), c(.partial, "按类别汇总"), c(.partial, "按类别汇总"), c(.partial, "按类别汇总"), c(.bad, "只有文件夹名")])
     ]
 }

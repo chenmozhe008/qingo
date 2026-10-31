@@ -232,11 +232,14 @@ struct MainView: View {
                     .truncationMode(.middle)
                     .frame(maxWidth: 360)
                     .padding(.top, 8)
-                ScanProgressBar(fraction: store.estimatedProgress,
-                                fill: LinearGradient(colors: [Theme.blue, Color(red: 0.50, green: 0.84, blue: 0.78)], startPoint: .leading, endPoint: .trailing),
-                                glow: Theme.cyan)
-                    .frame(width: 300, height: 6)
-                    .padding(.top, 18)
+                // The estimate is time-based, so the bar has to be re-read on a clock, not only on new items.
+                TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                    ScanProgressBar(fraction: store.estimatedProgress,
+                                    fill: LinearGradient(colors: [Theme.blue, Color(red: 0.50, green: 0.84, blue: 0.78)], startPoint: .leading, endPoint: .trailing),
+                                    glow: Theme.cyan)
+                        .frame(width: 300, height: 6)
+                }
+                .padding(.top, 18)
                 Button { store.cancelScan() } label: { Label("停止扫描", systemImage: "stop.circle.fill") }
                     .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
                     .keyboardShortcut(.cancelAction)
@@ -1632,7 +1635,7 @@ struct MainView: View {
         let selected = chats.first { $0.id == store.selectedChatID } ?? chats.max { ($0.bytes ?? 0) < ($1.bytes ?? 0) }
         return VStack(alignment: .leading, spacing: 18) {
         PageHeader(symbol: Theme.symbol(.chat), tint: Theme.color(.chat), title: ItemFilter.chat.title,
-                   subtitle: "聊天数据需在微信中清理。") {
+                   subtitle: "部分缓存可由小清清理，更多选项请在应用内查看。") {
             if let selected {
                 Button { store.openApp(bundleID: selected.id) } label: { Text("打开\(selected.name)") }
                     .buttonStyle(HeroButtonStyle())
@@ -1653,7 +1656,7 @@ struct MainView: View {
                 .frame(width: 170, height: 170)
                 .padding(.vertical, 6)
                 ForEach(chats) { chat in chatAppCard(chat, selected: chat.id == selected?.id) }
-                Text("小清不会修改微信的数据。")
+                Text("聊天记录、聊天中的文件、微盘，以及删了会重新登录或重新加载头像的文件夹，小清都不动。")
                     .font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1661,7 +1664,12 @@ struct MainView: View {
             }
             .frame(width: 290)
             ScrollView {
-                if let selected { chatGuide(selected) }
+                if let selected {
+                    VStack(alignment: .leading, spacing: 16) {
+                        chatCleanable(selected)
+                        chatGuide(selected)
+                    }
+                }
             }
             .frame(maxWidth: .infinity)
         }
@@ -1671,7 +1679,13 @@ struct MainView: View {
         .padding(.bottom, 24)
     }
 
-    private func chatTint(_ id: String) -> Color { id == "com.tencent.xinWeChat" ? Theme.green : Theme.blue }
+    private func chatTint(_ id: String) -> Color {
+        switch id {
+        case "com.tencent.xinWeChat": Theme.green
+        case "com.electron.lark": Theme.violet
+        default: Theme.blue
+        }
+    }
 
     private func chatAppCard(_ chat: ChatAppUsage, selected: Bool) -> some View {
         let over = (chat.bytes ?? 0) >= 2_000_000_000
@@ -1701,6 +1715,71 @@ struct MainView: View {
         .buttonStyle(.plain)
     }
 
+    /// One line on the chat page: a name and everything behind it added up.
+    private struct ChatCacheRow: Identifiable {
+        let title: String
+        let symbol: String
+        let bytes: Int64
+        var id: String { title }
+    }
+
+    /// Two folders can carry the same name (WeCom's caches): one row, sizes added up.
+    /// The app name is dropped — every row here already belongs to the page's app.
+    private func chatCacheRows(_ items: [ScanItem], appName: String) -> [ChatCacheRow] {
+        var rows: [ChatCacheRow] = []
+        for item in items {
+            let info = ItemPresentation.info(for: item)
+            let title = info.title.hasPrefix(appName + " ") ? String(info.title.dropFirst(appName.count + 1)) : info.title
+            if let index = rows.firstIndex(where: { $0.title == title }) {
+                let row = rows[index]
+                rows[index] = ChatCacheRow(title: row.title, symbol: row.symbol, bytes: row.bytes + item.bytes)
+            } else {
+                rows.append(ChatCacheRow(title: title, symbol: info.symbol, bytes: item.bytes))
+            }
+        }
+        return rows
+    }
+
+    /// The caches of this app that 小清 moves itself. Chat history and received files are never here.
+    @ViewBuilder
+    private func chatCleanable(_ chat: ChatAppUsage) -> some View {
+        let items = store.shownItems.filter { item in
+            item.kind == .cache && item.canTrash && ChatCache.part(for: item.url, home: store.policy.home)?.bundleID == chat.id
+        }
+        if !items.isEmpty {
+            let bytes = ScanStore.sum(items)
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text("小清可以直接清理").font(.system(size: 15, weight: .semibold))
+                    Spacer(minLength: 8)
+                    Text(ByteFormat.string(bytes)).font(.system(size: 15, weight: .bold)).monospacedDigit()
+                }
+                ForEach(chatCacheRows(items, appName: chat.name)) { row in
+                    HStack(spacing: 10) {
+                        Image(systemName: row.symbol)
+                            .font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                            .frame(width: 16)
+                        Text(row.title).font(.system(size: 13.5))
+                        Spacer(minLength: 8)
+                        Text(ByteFormat.string(row.bytes))
+                            .font(.system(size: 13)).foregroundStyle(Theme.ink2).monospacedDigit()
+                    }
+                }
+                Text("缓存会按需重建，日志会重新产生。")
+                    .font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
+                    .fixedSize(horizontal: false, vertical: true)
+                Button { store.reviewCleanup(only: Set(items.map(\.id))) } label: {
+                    Text(store.isCleaning ? "正在清理…" : "清理 \(ByteFormat.string(bytes))")
+                }
+                .buttonStyle(HeroButtonStyle())
+                .disabled(store.isCleaning)
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glass()
+        }
+    }
+
     /// Right column: how big it is, then where to click in the app and what each step frees. Only the method,
     /// in the app's own words; nothing here deletes anything.
     private func chatGuide(_ chat: ChatAppUsage) -> some View {
@@ -1716,42 +1795,65 @@ struct MainView: View {
                     .font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                 Button { store.openFullDiskAccessSettings() } label: { Text("打开系统设置") }.buttonStyle(HeroButtonStyle())
             }
-            Text("在\(chat.name)中前往").font(.system(size: 15, weight: .semibold)).padding(.top, 4)
-            // A menu path, wrapping between steps (never inside one) when the window narrows.
-            FlowLayout(spacing: 6) {
-                ForEach(Array(ChatGuide.path(for: chat.id).enumerated()), id: \.offset) { index, step in
-                    HStack(spacing: 6) {
-                        if index > 0 { Text("›").foregroundStyle(Theme.ink3) }
-                        Text(step).fixedSize()
-                    }
-                }
-            }
-                .font(.system(size: 14, weight: .medium))
-                .foregroundStyle(Theme.ink)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.fill(0.05)))
-            Text("然后").font(.system(size: 15, weight: .semibold)).padding(.top, 4)
-            ForEach(Array(ChatGuide.steps(for: chat.id).enumerated()), id: \.offset) { index, step in
-                let freed = parts.filter { step.kinds.contains($0.kind) }.reduce(Int64(0)) { $0 + $1.bytes }
-                HStack(alignment: .firstTextBaseline, spacing: 12) {
-                    Text("\(index + 1)")
-                        .font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
-                        .frame(width: 22, height: 22)
-                        .background(Circle().fill(Theme.blueFill))
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(alignment: .firstTextBaseline, spacing: 8) {
-                            Text(step.title).font(.system(size: 14, weight: .semibold))
-                            if freed > 0 {
-                                Text("约 \(ByteFormat.string(freed))").font(.system(size: 12.5)).foregroundStyle(Theme.ink2).monospacedDigit()
+            // Two small labels, one plain path, one boxed action: the thing the user must do is the only
+            // boxed element, so the eye lands on it rather than on three equal grey panels.
+            if !ChatGuide.path(for: chat.id).isEmpty {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("在\(chat.name)中前往").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink3)
+                    // A menu path, wrapping between steps (never inside one) when the window narrows.
+                    FlowLayout(spacing: 6) {
+                        ForEach(Array(ChatGuide.path(for: chat.id).enumerated()), id: \.offset) { index, step in
+                            HStack(spacing: 6) {
+                                if index > 0 { Text("›").foregroundStyle(Theme.ink3) }
+                                Text(step).fixedSize()
                             }
                         }
-                        Text(step.text).font(.system(size: 13)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .font(.system(size: 13.5, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+                }
+                .padding(.top, 2)
+            }
+            if let note = ChatGuide.note(for: chat.id), ChatGuide.steps(for: chat.id).isEmpty {
+                Text(note).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                    .lineSpacing(2)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("然后").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink3)
+                    // One action, so no numbers: a tinted bar marks it as the thing to do, the size sits on its line.
+                    ForEach(Array(ChatGuide.steps(for: chat.id).enumerated()), id: \.offset) { _, step in
+                        let freed = parts.filter { step.kinds.contains($0.kind) }.reduce(Int64(0)) { $0 + $1.bytes }
+                        HStack(alignment: .top, spacing: 12) {
+                            RoundedRectangle(cornerRadius: 2, style: .continuous)
+                                .fill(chatTint(chat.id))
+                                .frame(width: 3)
+                                .padding(.vertical, 2)
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Text(step.title).font(.system(size: 15, weight: .semibold))
+                                    Spacer(minLength: 8)
+                                    if freed > 0 {
+                                        Text("约 \(ByteFormat.string(freed))")
+                                            .font(.system(size: 13, weight: .medium)).foregroundStyle(Theme.ink2)
+                                            .monospacedDigit()
+                                    }
+                                }
+                                Text(step.text).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                                    .lineSpacing(2)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Theme.fill(0.05)))
                     }
                 }
             }
-            if let version {
+            Text("小清不会清理账号数据、聊天记录、收到的文件，以及头像和图片缓存。")
+                .font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
+                .fixedSize(horizontal: false, vertical: true)
+            if let version, chat.id != "com.electron.lark" {
                 Text("基于\(chat.name) \(version) 编写，其他版本的菜单位置可能不同。").font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
             }
         }

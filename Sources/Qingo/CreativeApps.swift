@@ -407,23 +407,34 @@ private final class OwnerCache: @unchecked Sendable {
     }
 }
 
-/// Chat apps are never cleaned here; this is the guide shown on their page.
+/// Cache is cleaned by 小清; this is what is left for the app's own page: the chat records.
 /// Paths are as the user clicked through them on 2026-10-25 (WeChat 4 and WeCom for Mac).
 enum ChatGuide {
-    /// The menu path to the app's storage page.
+    /// The menu path to the app's storage page. Feishu's menu may vary between versions.
     static func path(for bundleID: String) -> [String] {
-        bundleID == "com.tencent.xinWeChat"
-            ? ["左下角「≡」", "设置", "账号与存储", "存储空间「管理」"]
-            : ["左上角「企业微信」", "设置", "存储管理", "前往清理"]
+        switch bundleID {
+        case "com.tencent.xinWeChat": return ["左下角「≡」", "设置", "账号与存储", "存储空间「管理」"]
+        case "com.electron.lark": return ["左上角头像", "设置", "通用", "清理缓存"]
+        default: return ["左上角「企业微信」", "设置", "存储管理", "前往清理"]
+        }
     }
 
-    /// What to click on that page, in order, and which part of the data each step frees.
+    /// The steps for managing data that 小清 does not remove.
     static func steps(for bundleID: String) -> [(title: String, text: String, kinds: [ChatPart.Kind])] {
-        if bundleID == "com.tencent.xinWeChat" {
-            return [("清理「缓存」", "临时文件，不影响聊天记录。", [.cache]),
-                    ("管理「聊天记录」", "各聊天按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的图片和文件请先另存。", [.media, .records])]
+        switch bundleID {
+        case "com.tencent.xinWeChat":
+            return [("管理「聊天记录」", "各聊天按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的图片和文件请先另存。", [.media, .records])]
+        case "com.electron.lark":
+            return [("清理缓存并重启", "飞书会清除全部本地缓存，云端原始数据保留。未同步的离线文档、未上传的录音、工作台应用的本地文件、偏好设置和运行日志清除后无法恢复，请先同步或备份。重启后需要重新登录。确认后在飞书中选择「清理并重启」。", [])]
+        default:
+            return [("管理「聊天记录」", "聊天中的图片、视频和文件按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的请先另存。", [.media, .records])]
         }
-        return [("清理「缓存」", "临时文件，不影响聊天记录。", [.cache]),
-                ("管理「聊天中的文件」", "文件按占用从大到小排列，选择不需要的删除。删除后无法在本机恢复，需保留的请先另存。", [.media])]
+    }
+
+    /// A sentence for apps that hand nothing over (Feishu): where the space goes and what happens on a cleanup.
+    static func note(for bundleID: String) -> String? {
+        bundleID == "com.electron.lark"
+            ? "聊天记录、收到的文件和账号数据由小清保留。其他空间可在飞书的存储管理中查看，具体选项请以当前版本为准。"
+            : nil
     }
 }

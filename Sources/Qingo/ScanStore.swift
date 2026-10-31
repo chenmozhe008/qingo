@@ -40,6 +40,8 @@ final class ScanStore: ObservableObject {
     @Published var confirmDecided = false
     @Published var isScanning = false
     @Published var progress = ScanProgress(scannedCount: 0, currentFolder: "")
+    /// When the running scan started: the progress bar counts from here (see `estimatedProgress`).
+    @Published private(set) var scanStartedAt: Date?
     @Published var message: String?
     private let resultDismissTimer = ResultDismissTimer()
     @Published var cleanupReport: CleanupReport? {
@@ -131,6 +133,7 @@ final class ScanStore: ObservableObject {
     private enum Keys {
         static let savedFolders = "savedFolders"
         static let scanSizes = "scanSizes"
+        static let scanDurations = "scanDurations"
         static let lastFilter = "lastFilter"
         static let lastScope = "lastScope"
         static let scanDates = "scanDates"
@@ -173,10 +176,14 @@ final class ScanStore: ObservableObject {
            let mode = AppearanceMode.allCases.first(where: { $0.title == raw }) {
             DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.appearance = mode }
         }
-        // `--category=大文件与工程` (an ItemFilter raw value): open that category instead of the overview.
+        // `--category=chat` (an ItemFilter id, or its old label): open that category instead of the overview.
         if let raw = arguments.first(where: { $0.hasPrefix("--category=") }).map({ String($0.dropFirst("--category=".count)) }),
-           let category = ItemFilter(rawValue: raw) {
+           let category = ItemFilter.fromStored(raw) {
             selectCategory(category)
+        }
+        // `--chat=com.tencent.WeWorkMac`: show that app on the chat page (the second one is otherwise never shown).
+        if let raw = arguments.first(where: { $0.hasPrefix("--chat=") }).map({ String($0.dropFirst("--chat=".count)) }) {
+            selectedChatID = raw
         }
         // `--growth`: open the space-change report (needs a notable change against the comparison scan).
         if arguments.contains("--growth"), spaceGrowth != nil { showGrowth() }
@@ -224,7 +231,7 @@ final class ScanStore: ObservableObject {
 
     var selectedItem: ScanItem? { displayedItems.first { $0.id == selectedID } }
 
-    /// Regenerable caches: the ones "全选" and the free-space card count.
+    /// Regenerable caches: the ones "全选" and the one-click total count.
     var eligibleItems: [ScanItem] {
         shownItems.filter { $0.kind == .cache && $0.canTrash }
     }
@@ -276,9 +283,13 @@ final class ScanStore: ObservableObject {
     }
 
     /// Fraction of the last scan of the same scope, when one is known.
+    ///
+    /// Measured against the time the last scan took, not the item count: counting files hits the old total
+    /// within seconds (one folder can hold most of them), which used to leave the bar full for the rest of
+    /// the scan (reported 2026-10-31). A first scan of a scope shows the sweeping band instead.
     var estimatedProgress: Double? {
-        guard let expected = scanSizes[scopeKey], expected > 0 else { return nil }
-        return min(Double(progress.scannedCount) / Double(expected), 0.99)
+        guard let started = scanStartedAt, let expected = scanDurations[scopeKey], expected > 1 else { return nil }
+        return min(Date().timeIntervalSince(started) / expected, 0.97)
     }
 
     nonisolated static func sum(_ items: [ScanItem]) -> Int64 {
@@ -543,12 +554,20 @@ final class ScanStore: ObservableObject {
         set { UserDefaults.standard.set(newValue, forKey: Keys.scanSizes) }
     }
 
+    /// How long the last scan of a scope took, in seconds: the progress bar's only estimate.
+    private var scanDurations: [String: Double] {
+        get { UserDefaults.standard.dictionary(forKey: Keys.scanDurations) as? [String: Double] ?? [:] }
+        set { UserDefaults.standard.set(newValue, forKey: Keys.scanDurations) }
+    }
+
     func scan(clearMessage: Bool = true) {
         guard !isScanning, !isCleaning else { return }
         tool = nil
         isScanning = true
         liveFound = []
         progress = ScanProgress(scannedCount: 0, currentFolder: root.path)
+        let startedAt = Date()
+        scanStartedAt = startedAt
         if clearMessage {
             message = nil
             cleanupReport = nil
@@ -590,6 +609,13 @@ final class ScanStore: ObservableObject {
                 guard let self, self.scanID == thisScan else { return }
                 self.scanTask = nil
                 self.isScanning = false
+                self.scanStartedAt = nil
+                let elapsed = Date().timeIntervalSince(startedAt)
+                if elapsed > 1 {
+                    var durations = self.scanDurations
+                    durations[Self.scopeKey(root: scanRoot, quick: isQuick)] = elapsed
+                    self.scanDurations = durations
+                }
                 switch output {
                 case .success(let value):
                     if isQuick { self.rotateGrowthBaseline() }
@@ -614,6 +640,7 @@ final class ScanStore: ObservableObject {
         scanTask = nil
         scanID = UUID()
         isScanning = false
+        scanStartedAt = nil
         message = "扫描已取消。"
         // Return to this location's previous result instead of an empty screen.
         showSavedResult()
@@ -696,7 +723,7 @@ final class ScanStore: ObservableObject {
         pickAllSafe()
         refreshLargeFileSummary()
         // Reopen on the category last viewed, if it is still shown.
-        if let saved = UserDefaults.standard.string(forKey: Keys.lastFilter).flatMap(ItemFilter.init(rawValue:)), ItemFilter.visible.contains(saved) {
+        if let saved = UserDefaults.standard.string(forKey: Keys.lastFilter).flatMap(ItemFilter.fromStored), ItemFilter.visible.contains(saved) {
             filter = saved
         } else {
             filter = .caches
@@ -804,19 +831,35 @@ struct TrashedItem: Sendable {
 
 enum ItemFilter: String, CaseIterable, Identifiable {
     /// Categories shown in the sidebar and cards. "需要判断" is no longer shown: its items asked the user to judge.
+    ///
+    /// `rawValue` is the id, `title` is what people read: renaming a category must never invalidate a saved
+    /// `lastFilter` or the `--category` argument.
     static let visible: [ItemFilter] = [.caches, .creative, .chat, .large]
 
-    case caches = "可清理缓存"
-    case creative = "剪辑与设计软件"
-    case chat = "微信与企业微信"
-    case review = "需要判断"
-    case large = "大文件与工程"
+    case caches, creative, chat, review, large
+
     var id: String { rawValue }
+
     var title: String {
         switch self {
+        case .caches: "应用缓存"
         case .creative: "创作与 AI 工具"
-        case .large: "大文件"
-        default: rawValue
+        case .chat: "通讯与办公"
+        case .review: "需要判断"
+        case .large: "大文件与工程"
+        }
+    }
+
+    /// Older builds saved the label itself; accept those labels as well as the ids.
+    static func fromStored(_ raw: String) -> ItemFilter? {
+        if let filter = ItemFilter(rawValue: raw) { return filter }
+        switch raw {
+        case "可清理缓存": return .caches
+        case "剪辑与设计软件", "创作与 AI 工具": return .creative
+        case "微信与企业微信", "常用通讯": return .chat
+        case "需要判断": return .review
+        case "大文件", "大文件与工程": return .large
+        default: return nil
         }
     }
 
@@ -879,7 +922,7 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 /// settings, saved folders and per-location results, so renaming does not look like a reset.
 enum LegacyMigration {
     private static let doneKey = "migratedFromMacSpaceKeeper"
-    private static let keys = ["appearance", "savedFolders", "scanSizes", "lastFilter", "lastScope", "scanDates"]
+    private static let keys = ["appearance", "savedFolders", "scanSizes", "scanDurations", "lastFilter", "lastScope", "scanDates"]
 
     static func run() {
         // A demo starts empty: carrying the old settings over would show this Mac's folders and drives.

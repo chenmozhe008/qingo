@@ -4,11 +4,17 @@ struct SafetyPolicy: Sendable {
     let home: URL
     let protectedRoots: [URL]
     let extraProtectedRoots: [URL]
+    /// Rebuildable folders inside the chat apps' otherwise protected containers (see `ChatCache`).
+    let chatCacheRoots: [String]
+    private let chatCacheNotes: [String: String]
 
     init(home: URL = AppHome.url, extraProtected: [URL] = []) {
         let canonicalHome = CanonicalPath.url(home)
         self.home = canonicalHome
         self.extraProtectedRoots = extraProtected.map(CanonicalPath.url)
+        let chatCaches = ChatCache.parts(home: canonicalHome)
+        self.chatCacheRoots = chatCaches.map { CanonicalPath.url($0.url).path }
+        self.chatCacheNotes = Dictionary(chatCaches.map { (CanonicalPath.url($0.url).path, $0.note) }, uniquingKeysWith: { first, _ in first })
         let names = [
             "Library/Application Support/RecordingInbox",
             "Library/Application Support/LarkShell",
@@ -28,6 +34,8 @@ struct SafetyPolicy: Sendable {
     func isProtected(_ url: URL) -> Bool {
         let path = CanonicalPath.url(url).path
         if extraProtectedRoots.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) { return true }
+        // A chat app's container stays protected except for the cache folders listed in `ChatCache`.
+        if chatCacheRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
         let allowedInside = ["Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
                              "Library/Application Support/Shandianshuo/recordings", "Library/Developer/Xcode/DerivedData"]
             .map { home.appending(path: $0).path }
@@ -103,6 +111,7 @@ struct SafetyPolicy: Sendable {
 
     func cacheDescription(for url: URL, isDirectory: Bool) -> String? {
         guard isDirectory, !isProtected(url) else { return nil }
+        if let note = chatCacheNotes[CanonicalPath.url(url).path] { return note }
         if let note = CreativeApp.cacheNote(url, home: home) { return note }
         guard !isProject(url), CreativeApp.dataOwner(url, home: home) == nil else { return nil }
         let name = url.lastPathComponent
@@ -179,11 +188,13 @@ struct SafetyPolicy: Sendable {
             "Library/Application Support/Notion/Partitions/notion/Code Cache",
             "Library/Application Support/Notion/Partitions/notion/Service Worker"
         ].map { home.appending(path: $0) }
+        // WeChat's and WeCom's rebuildable caches; the rest of their containers is never scanned.
+        let chatCaches = chatCacheRoots.map { URL(fileURLWithPath: $0, isDirectory: true) }
         let updaterRoot = home.appending(path: "Library/Application Support/Caches")
         let updaters = (try? FileManager.default.contentsOfDirectory(at: updaterRoot, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         let recordings = home.appending(path: "Library/Application Support/Shandianshuo/recordings")
         let toolData = CreativeApp.dataLocations(home: home).filter { !isProtected($0) }
-        let locations = Set(cacheChildren + extra + updaters + [recordings] + toolData).filter {
+        let locations = Set(cacheChildren + extra + chatCaches + updaters + [recordings] + toolData).filter {
             (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
                 (cacheDescription(for: $0, isDirectory: true) != nil || reviewDescription(for: $0, isDirectory: true) != nil)
         }

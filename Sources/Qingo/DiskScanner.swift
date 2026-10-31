@@ -185,51 +185,66 @@ struct DiskScanner: Sendable {
         onFound?(item)
     }
 
-    /// Read-only size of chat apps' data. These folders stay protected; this only measures them.
+    /// Read-only size of the chat apps' data. These folders stay protected; this only measures them.
     func chatAppUsage() -> [ChatAppUsage] {
-        let apps = [("com.tencent.xinWeChat", "微信"), ("com.tencent.WeWorkMac", "企业微信")]
         let home = policy.home
         let groupRoot = home.appending(path: "Library/Group Containers")
         let groups = (try? FileManager.default.contentsOfDirectory(atPath: groupRoot.path)) ?? []
-        return apps.compactMap { bundleID, name in
-            var roots = [home.appending(path: "Library/Containers/\(bundleID)")]
-            roots += groups.filter { $0.hasSuffix(".\(bundleID)") }.map { groupRoot.appending(path: $0) }
+        // Show apps with local data, including leftovers after an uninstall.
+        return ChatCache.apps.compactMap { app in
+            var roots = [ChatCache.root(of: app, home: home)]
+            if app.isSandboxed {
+                roots += groups.filter { $0.hasSuffix(".\(app.bundleID)") }.map { groupRoot.appending(path: $0) }
+            }
             roots = roots.filter { FileManager.default.fileExists(atPath: $0.path) }
             guard !roots.isEmpty else { return nil }
             var total: Int64 = 0
             for root in roots {
                 // A protected container lists as unreadable without Full Disk Access.
                 guard (try? FileManager.default.contentsOfDirectory(atPath: root.path)) != nil else {
-                    return ChatAppUsage(id: bundleID, name: name, bytes: nil)
+                    return ChatAppUsage(id: app.bundleID, name: app.name, bytes: nil)
                 }
                 total += allocatedSize(of: root)
             }
-            return ChatAppUsage(id: bundleID, name: name, bytes: total, parts: chatParts(bundleID, total: total))
+            return ChatAppUsage(id: app.bundleID, name: app.name, bytes: total, parts: chatParts(app, total: total))
         }
     }
 
-    /// Splits a chat app's data by what its folders hold (WeChat 4 / WeCom layouts, measured 2026-10-25).
+    /// Splits a chat app's data by what its folders hold (WeChat 4 / WeCom / Feishu layouts, measured 2026-10-31).
     /// Folders that are not there count as zero; whatever is not matched is "other".
-    private func chatParts(_ bundleID: String, total: Int64) -> [ChatPart] {
-        let data = policy.home.appending(path: "Library/Containers/\(bundleID)/Data")
-        let documents = data.appending(path: "Documents")
+    private func chatParts(_ app: ChatCache.App, total: Int64) -> [ChatPart] {
+        let root = ChatCache.dataRoot(of: app, home: policy.home)
+        let documents = root.appending(path: "Documents")
         func size(_ urls: [URL]) -> Int64 { urls.reduce(0) { $0 + allocatedSize(of: $1) } }
         func children(_ url: URL, _ name: String) -> [URL] {
             ((try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil)) ?? []).map { $0.appending(path: name) }
         }
         var parts: [ChatPart] = []
-        if bundleID == "com.tencent.xinWeChat" {
+        if app.bundleID == "com.tencent.xinWeChat" {
             let accounts = documents.appending(path: "xwechat_files")
             parts = [ChatPart(kind: .media, bytes: size(children(accounts, "msg"))),
                      ChatPart(kind: .records, bytes: size(children(accounts, "db_storage"))),
-                     ChatPart(kind: .cache, bytes: size([documents.appending(path: "app_data"), data.appending(path: ".wxapplet"),
-                                                         data.appending(path: "Library/Caches")]))]
+                     // `app_data` is the account's own data, not a cache — but it is small next to the
+                     // messages, and counting it here says "this is what the app owns", not "this is cleanable".
+                     ChatPart(kind: .cache, bytes: size([documents.appending(path: "app_data"), root.appending(path: ".wxapplet"),
+                                                         root.appending(path: "Library/Caches")]))]
+        } else if app.bundleID == "com.electron.lark" {
+            // Count known folders for display; local messages and received files remain protected.
+            let sdk = root.appending(path: "sdk_storage")
+            parts = [ChatPart(kind: .media, bytes: size(children(sdk, "resources"))),
+                     ChatPart(kind: .cache, bytes: size([sdk.appending(path: "log"), root.appending(path: "CodeCache"),
+                                                         root.appending(path: "GrShaderCache"), root.appending(path: "GraphiteDawnCache"),
+                                                         root.appending(path: "ShaderCache")]))]
         } else {
             let profiles = documents.appending(path: "Profiles")
             parts = [ChatPart(kind: .media, bytes: size(children(profiles, "Caches"))),
-                     ChatPart(kind: .cache, bytes: size([documents.appending(path: "cefcache"), data.appending(path: "Library/Caches"),
-                                                         data.appending(path: "Library/Application Support/WXWork/Log")] + children(profiles, "Publishsys"))),
-                     ChatPart(kind: .drive, bytes: size([data.appending(path: "WeDrive")]))]
+                     // Only what 小清 cleans. The resource packs (Publishsys) come back by downloading them again,
+                     // so they are not counted here and stay under 其他.
+                     ChatPart(kind: .cache, bytes: size([root.appending(path: "Library/Caches"), root.appending(path: "Library/WebKit"),
+                                                         documents.appending(path: "cefcache"), documents.appending(path: "GYLog"),
+                                                         documents.appending(path: "GYOssLog"),
+                                                         root.appending(path: "Library/Application Support/WXWork/Log")])),
+                     ChatPart(kind: .drive, bytes: size([root.appending(path: "WeDrive")]))]
         }
         let known = parts.reduce(Int64(0)) { $0 + $1.bytes }
         parts.append(ChatPart(kind: .other, bytes: max(total - known, 0)))
