@@ -15,7 +15,7 @@
 ![Apple Silicon](https://img.shields.io/badge/Apple%20Silicon-arm64-555)
 ![SwiftUI](https://img.shields.io/badge/SwiftUI-native-orange?logo=swift)
 
-https://github.com/user-attachments/assets/22e4436a-bfe4-4cb8-9296-4bb711f5abb2
+https://github.com/user-attachments/assets/ccfc8bf3-701b-47a5-988b-591e62be3ad2
 
 <img src="docs/images/overview-light.png" alt="总览（浅色）" width="900">
 
