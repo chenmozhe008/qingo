@@ -50,6 +50,15 @@ struct AppTrace: Identifiable, Sendable {
     var url: URL { id }
 }
 
+enum AppRecycle {
+    static func permissionDenied(_ error: NSError) -> Bool {
+        if error.domain == NSCocoaErrorDomain && [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(error.code) { return true }
+        if error.domain == NSPOSIXErrorDomain && [Int(EACCES), Int(EPERM)].contains(error.code) { return true }
+        if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError, permissionDenied(underlying) { return true }
+        return (error.userInfo["NSUnderlyingErrors"] as? [NSError] ?? []).contains { permissionDenied($0) }
+    }
+}
+
 /// Leftovers of an app that is gone, merged by bundle id ("com.vendor.app").
 struct OrphanGroup: Identifiable, Sendable {
     let id: String
@@ -543,13 +552,16 @@ final class UninstallStore: ObservableObject {
         message = nil
         let leftovers = traces.filter { $0.kind != .app && picked.contains($0.id) }
         let uninstaller = self.uninstaller
-        // The bundle goes through Finder's recycle, which asks for a password when the app belongs to the system admin.
         NSWorkspace.shared.recycle([app.id]) { [weak self] moved, error in
             Task { @MainActor in
                 guard let self else { return }
-                guard error == nil, let trashedApp = moved[app.id] else {
+                guard let trashedApp = moved[app.id] else {
                     self.isWorking = false
-                    self.message = "无法将 \(app.name) 移到废纸篓，可在访达中手动移除（可能需要输入密码）"
+                    if let error = error as NSError?, AppRecycle.permissionDenied(error) {
+                        self.message = "没有权限卸载 \(app.name)，可在访达中移到废纸篓并按系统提示输入管理员密码"
+                    } else {
+                        self.message = "无法将 \(app.name) 移到废纸篓：\(error.map { TrashService.reason(for: $0) } ?? "系统未返回移动结果")"
+                    }
                     return
                 }
                 Task.detached(priority: .userInitiated) { [weak self] in

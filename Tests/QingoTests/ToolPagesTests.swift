@@ -2,6 +2,13 @@ import Foundation
 import Testing
 @testable import Qingo
 
+@Test func recyclePermissionErrorsAreDistinguished() {
+    let permission = NSError(domain: NSCocoaErrorDomain, code: NSFileWriteNoPermissionError)
+    let wrapped = NSError(domain: NSCocoaErrorDomain, code: 1, userInfo: ["NSUnderlyingErrors": [permission]])
+    #expect(AppRecycle.permissionDenied(wrapped))
+    #expect(!AppRecycle.permissionDenied(NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError)))
+}
+
 struct ToolPagesTests {
     private func makeHome() throws -> URL {
         let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
