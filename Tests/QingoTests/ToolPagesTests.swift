@@ -7,6 +7,18 @@ import Testing
     let wrapped = NSError(domain: NSCocoaErrorDomain, code: 1, userInfo: ["NSUnderlyingErrors": [permission]])
     #expect(AppRecycle.permissionDenied(wrapped))
     #expect(!AppRecycle.permissionDenied(NSError(domain: NSCocoaErrorDomain, code: NSFileNoSuchFileError)))
+    #expect(AppRecycle.shellQuote("Bob's app") == "'Bob'\\''s app'")
+}
+
+@Test func authorizedRecycleProbe() throws {
+    guard let path = ProcessInfo.processInfo.environment["QINGO_AUTH_PROBE"] else { return }
+    let source = URL(fileURLWithPath: path)
+    let identity = try #require(TrashService.currentIdentity(source))
+    let trashed = try AppRecycle.authorizedTrash(source, identity: identity)
+    #expect(TrashService.currentIdentity(source) == nil)
+    #expect(TrashService.currentIdentity(trashed) == identity)
+    try AppRecycle.authorizedMove(from: trashed, to: source, identity: identity)
+    #expect(TrashService.currentIdentity(source) == identity)
 }
 
 struct ToolPagesTests {

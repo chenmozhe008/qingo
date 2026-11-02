@@ -57,6 +57,50 @@ enum AppRecycle {
         if let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError, permissionDenied(underlying) { return true }
         return (error.userInfo["NSUnderlyingErrors"] as? [NSError] ?? []).contains { permissionDenied($0) }
     }
+
+    static func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    static func authorizedMove(from source: URL, to destination: URL, identity: FileIdentity) throws {
+        let src = shellQuote(source.path)
+        let dst = shellQuote(destination.path)
+        let expected = "\(identity.device):\(identity.inode)"
+        let command = "set -e; test \"$(/usr/bin/stat -f '%d:%i' \(src))\" = \(shellQuote(expected)); test ! -e \(dst) && test ! -L \(dst); /bin/mv -n \(src) \(dst); test ! -e \(src) && test ! -L \(src); test \"$(/usr/bin/stat -f '%d:%i' \(dst))\" = \(shellQuote(expected))"
+        let escaped = command.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let script = """
+        try
+            do shell script "\(escaped)" with prompt "小清需要管理员授权来移动你选择的应用。" with administrator privileges
+            return "OK"
+        on error messageText number errorNumber
+            return "ERROR:" & errorNumber & ":" & messageText
+        end try
+        """
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", script]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = Pipe()
+        try process.run()
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let result = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if process.terminationStatus != 0 || result != "OK" {
+            let parts = result.split(separator: ":", maxSplits: 2, omittingEmptySubsequences: false)
+            let code = parts.count > 1 ? (Int(parts[1]) ?? -1) : -1
+            let message = parts.count > 2 ? String(parts[2]) : "授权操作失败"
+            throw NSError(domain: "Qingo.Authorization", code: code, userInfo: [NSLocalizedDescriptionKey: message])
+        }
+    }
+
+    static func authorizedTrash(_ source: URL, identity: FileIdentity) throws -> URL {
+        let trash = try FileManager.default.url(for: .trashDirectory, in: .userDomainMask, appropriateFor: source, create: false)
+        guard let trashIdentity = TrashService.currentIdentity(trash), trashIdentity.device == identity.device else { throw TrashError.changed }
+        let destination = trash.appendingPathComponent("小清-\(UUID().uuidString)-\(source.lastPathComponent)")
+        try authorizedMove(from: source, to: destination, identity: identity)
+        return destination
+    }
 }
 
 /// Leftovers of an app that is gone, merged by bundle id ("com.vendor.app").
@@ -367,6 +411,7 @@ final class UninstallStore: ObservableObject {
     }
     @Published var message: String?
     @Published private(set) var undoable: [(original: URL, trashed: URL)] = []
+    private var undoAppOriginal: URL?
 
     /// App name to select once it is measured (`--select-app=` launch argument, for screenshots).
     var pendingSelection: String?
@@ -552,11 +597,22 @@ final class UninstallStore: ObservableObject {
         message = nil
         let leftovers = traces.filter { $0.kind != .app && picked.contains($0.id) }
         let uninstaller = self.uninstaller
+        let identity = traces.first { $0.kind == .app }?.identity
         NSWorkspace.shared.recycle([app.id]) { [weak self] moved, error in
             Task { @MainActor in
                 guard let self else { return }
-                guard let trashedApp = moved[app.id] else {
+                var trashedApp = moved[app.id]
+                if trashedApp == nil, let error = error as NSError?, AppRecycle.permissionDenied(error), let identity,
+                   TrashService.currentIdentity(app.id) == identity, !self.isRunning(app) {
+                    do {
+                        trashedApp = try await Task.detached { try AppRecycle.authorizedTrash(app.id, identity: identity) }.value
+                    } catch {
+                        self.message = (error as NSError).code == -128 ? "已取消授权，未卸载 \(app.name)" : "无法卸载 \(app.name)：\(error.localizedDescription)"
+                    }
+                }
+                guard let trashedApp else {
                     self.isWorking = false
+                    if self.message != nil { return }
                     if let error = error as NSError?, AppRecycle.permissionDenied(error) {
                         self.message = "没有权限卸载 \(app.name)，可在访达中移到废纸篓并按系统提示输入管理员密码"
                     } else {
@@ -570,6 +626,7 @@ final class UninstallStore: ObservableObject {
                         guard let self else { return }
                         self.isWorking = false
                         self.undoable = [(app.id, trashedApp)] + result.moved
+                        self.undoAppOriginal = app.id
                         let bytes = (traces.first { $0.kind == .app }?.bytes ?? 0) + leftovers.filter { t in result.moved.contains { $0.original == t.url } }.reduce(0) { $0 + $1.bytes }
                         self.report = CleanupReport(movedCount: result.moved.count + 1, movedBytes: bytes, failures: result.failures)
                         let sizes = Dictionary(traces.map { ($0.url.path, $0.bytes) }, uniquingKeysWith: { first, _ in first })
@@ -599,6 +656,7 @@ final class UninstallStore: ObservableObject {
                 guard let self else { return }
                 self.isWorking = false
                 self.undoable = result.moved
+                self.undoAppOriginal = nil
                 let movedPaths = Set(result.moved.map(\.original.path))
                 let bytes = traces.filter { movedPaths.contains($0.url.path) }.reduce(0) { $0 + $1.bytes }
                 self.report = CleanupReport(movedCount: result.moved.count, movedBytes: bytes, failures: result.failures)
@@ -630,16 +688,26 @@ final class UninstallStore: ObservableObject {
 
     func undo() {
         let entries = undoable
+        let appOriginal = undoAppOriginal
         guard !entries.isEmpty, !isWorking else { return }
         undoable = []
         isWorking = true
         Task.detached(priority: .userInitiated) { [weak self] in
-            let back = TrashService.putBack(entries)
+            var back = TrashService.putBack(entries)
+            if entries[0].original == appOriginal, !back[0], let identity = TrashService.currentIdentity(entries[0].trashed),
+               !FileManager.default.fileExists(atPath: entries[0].original.path) {
+                do {
+                    try AppRecycle.authorizedMove(from: entries[0].trashed, to: entries[0].original, identity: identity)
+                    back[0] = true
+                } catch { }
+            }
             let restored = back.filter { $0 }.count
             await MainActor.run {
                 guard let self else { return }
                 self.isWorking = false
                 self.report = nil
+                self.undoable = zip(entries, back).compactMap { entry, restored in restored ? nil : entry }
+                self.undoAppOriginal = self.undoable.contains { $0.original == appOriginal } ? appOriginal : nil
                 self.message = restored == entries.count ? "已恢复 \(restored) 项" : "已恢复 \(restored) 项，\(entries.count - restored) 项未恢复"
                 self.reload()
             }
