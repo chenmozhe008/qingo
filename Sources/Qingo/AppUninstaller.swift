@@ -103,6 +103,80 @@ enum AppRecycle {
     }
 }
 
+/// A part an installed app runs without: a hardware utility, an installer it has finished with, a downloadable model.
+struct AppSlimItem: Identifiable, Sendable {
+    let id: URL
+    let title: String
+    let note: String
+    let bytes: Int64
+    let identity: FileIdentity
+    var url: URL { id }
+}
+
+/// What can be freed without uninstalling. An app bundle itself stays whole: removing architectures or languages
+/// from inside it breaks its signature, and the app can refuse to start. Listed only by exact, checked path.
+enum AppSlimming {
+    struct Part { let url: URL; let title: String; let note: String }
+
+    static func parts(for app: InstalledApp, home: URL, system: URL = URL(fileURLWithPath: "/")) -> [Part] {
+        switch app.bundleID {
+        case "com.blackmagic-design.DaVinciResolve":
+            let prereqs = system.appending(path: "Library/Application Support/Blackmagic Design/DaVinci Resolve/Prereqs")
+            return [Part(url: app.id.appending(path: "DaVinci Control Panels Setup.app"), title: "调色台设置工具", note: "仅连接达芬奇调色台时需要"),
+                    Part(url: app.id.appending(path: "Blackmagic Remote Monitor.app"), title: "远程监看工具", note: "仅使用远程监看时需要"),
+                    Part(url: app.id.appending(path: "Fairlight Studio Utility.app"), title: "Fairlight 设置工具", note: "仅连接 Fairlight 调音台时需要"),
+                    Part(url: app.id.appending(path: "DaVinci Resolve Manual.pdf"), title: "说明书副本", note: "应用内还有一份"),
+                    Part(url: prereqs.appending(path: "davinci_panels.tgz"), title: "调色台驱动安装包", note: "安装时已使用，升级时会重新放入"),
+                    Part(url: prereqs.appending(path: "blackmagic_raw_player_installer.tgz"), title: "RAW 播放器安装包", note: "安装时已使用，升级时会重新放入")]
+        case "com.lemon.lvpro":
+            return [Part(url: home.appending(path: "Movies/JianyingPro/User Data/SupplysStore/local-asr-supplies"), title: "离线字幕识别模型",
+                         note: "下次使用离线字幕识别时需重新下载")]
+        case _ where app.bundleID.hasPrefix("com.adobe.AfterEffects"):
+            // A version whose app is gone: only plug-ins an installer put there remain, and no After Effects loads them.
+            let applications = app.id.deletingLastPathComponent()
+            let names = (try? FileManager.default.contentsOfDirectory(atPath: applications.path)) ?? []
+            return names.filter { $0.hasPrefix("Adobe After Effects ") && $0 != app.id.lastPathComponent }.compactMap { name in
+                let folder = applications.appending(path: name)
+                let inside = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? []).filter { !$0.hasPrefix(".") }
+                guard inside == ["Plug-ins"] else { return nil }
+                return Part(url: folder, title: "\(name.replacingOccurrences(of: "Adobe After Effects ", with: "AE ")) 遗留插件", note: "该版本已卸载，这些插件不再加载")
+            }
+        default:
+            return []
+        }
+    }
+
+    /// Where the app itself clears what it generated while working.
+    static func inAppPath(for app: InstalledApp) -> String? {
+        if app.bundleID == "com.blackmagic-design.DaVinciResolve" { return "播放 → 删除渲染缓存" }
+        if app.bundleID == "com.lemon.lvpro" { return "全局设置 → 缓存管理" }
+        if app.bundleID.hasPrefix("com.adobe.AfterEffects") { return "编辑 → 清理 → 所有内存与磁盘缓存" }
+        return nil
+    }
+
+    /// Why the app stays large after everything else is gone.
+    static func whyLarge(for app: InstalledApp) -> String? {
+        if app.bundleID == "com.blackmagic-design.DaVinciResolve" { return "其余是程序和内置资源，不能单独删除。" }
+        if app.bundleID == "com.lemon.lvpro" { return "其余是剪辑引擎和内置组件，不能单独删除。" }
+        if app.bundleID.hasPrefix("com.adobe.AfterEffects") { return "其余是程序、内置效果和预设，不能单独删除。" }
+        return nil
+    }
+}
+
+/// Apps of one product line, placed next to each other in the list. Named one by one: a shared vendor prefix is not enough
+/// (com.tencent is WeChat, WeCom and Tencent Meeting; com.microsoft is Office and Edge).
+enum AppFamily {
+    private static let office: Set<String> = ["com.microsoft.Word", "com.microsoft.Excel", "com.microsoft.Powerpoint",
+                                              "com.microsoft.onenote.mac", "com.microsoft.Outlook"]
+
+    static func name(of app: InstalledApp) -> String? {
+        if app.bundleID.hasPrefix("com.blackmagic-design.") { return "Blackmagic Design" }
+        if app.bundleID.hasPrefix("com.adobe.") || app.name.hasPrefix("Adobe ") { return "Adobe" }
+        if office.contains(app.bundleID) { return "Microsoft Office" }
+        return nil
+    }
+}
+
 /// Leftovers of an app that is gone, merged by bundle id ("com.vendor.app").
 struct OrphanGroup: Identifiable, Sendable {
     let id: String
@@ -143,7 +217,7 @@ struct AppUninstaller: Sendable {
 
     private func single(_ url: URL) -> InstalledApp? {
         guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple."), id != Bundle.main.bundleIdentifier,
-              !Self.isBackgroundOnly(bundle) else { return nil }
+              !Self.isBackgroundOnly(bundle), !Self.isRuntimeLauncher(id) else { return nil }
         let name = FileManager.default.displayName(atPath: url.path).replacingOccurrences(of: ".app", with: "")
         return InstalledApp(id: url, name: name, bundleID: id, version: bundle.infoDictionary?["CFBundleShortVersionString"] as? String)
     }
@@ -156,11 +230,16 @@ struct AppUninstaller: Sendable {
         return (value as? Bool) == true || (value as? String) == "1" || (value as? String)?.uppercased() == "YES"
     }
 
+    /// Python's IDLE and launcher: the interpreter scripts run on lives in /Library/Frameworks, so the launcher's
+    /// "last used" says nothing about the runtime, and removing the folder frees nothing and leaves the runtime behind.
+    static func isRuntimeLauncher(_ id: String) -> Bool { id.hasPrefix("org.python.") }
+
     private func suite(_ folder: URL, bundles: [URL]) -> InstalledApp? {
         let members = bundles.compactMap { url -> (URL, Bundle, String)? in
             guard let bundle = Bundle(url: url), let id = bundle.bundleIdentifier, !id.hasPrefix("com.apple.") else { return nil }
             return (url, bundle, id)
         }
+        guard !members.isEmpty, !members.allSatisfy({ Self.isRuntimeLauncher($0.2) }) else { return nil }
         // The main app is the one named like the folder, else the largest that is not an uninstaller.
         let name = folder.lastPathComponent
         let candidates = members.filter { !$0.0.lastPathComponent.lowercased().contains("uninstall") }
@@ -297,6 +376,33 @@ struct AppUninstaller: Sendable {
         return total
     }
 
+    // MARK: Slimming without uninstalling
+
+    /// The parts of this app that exist on this Mac, largest first.
+    func slimItems(for app: InstalledApp) -> [AppSlimItem] {
+        AppSlimming.parts(for: app, home: policy.home).compactMap { part in
+            var info = stat()
+            guard lstat(part.url.path, &info) == 0, info.st_mode & mode_t(S_IFMT) != mode_t(S_IFLNK) else { return nil }
+            let bytes = info.st_mode & mode_t(S_IFMT) == mode_t(S_IFDIR) ? Self.size(of: part.url) : Int64(info.st_size)
+            return AppSlimItem(id: part.url, title: part.title, note: part.note, bytes: bytes,
+                               identity: FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)))
+        }
+        .sorted { $0.bytes > $1.bytes }
+    }
+
+    /// Moves one part to the Trash, asking for the administrator password when the system requires it.
+    func moveSlimItem(_ item: AppSlimItem, of app: InstalledApp) throws -> URL {
+        guard AppSlimming.parts(for: app, home: policy.home).contains(where: { $0.url.path == item.url.path }) else { throw TrashError.notEligible }
+        guard TrashService.currentIdentity(item.url) == item.identity else { throw TrashError.changed }
+        do {
+            var resulting: NSURL?
+            try FileManager.default.trashItem(at: item.url, resultingItemURL: &resulting)
+            return resulting as URL? ?? item.url
+        } catch let error as NSError where AppRecycle.permissionDenied(error) {
+            return try AppRecycle.authorizedTrash(item.url, identity: item.identity)
+        }
+    }
+
     // MARK: Leftovers of apps that are gone
 
     /// Bundle-id-named items whose vendor has no installed app at all, merged per id.
@@ -396,6 +502,7 @@ final class UninstallStore: ObservableObject {
     @Published var showRelated = false
     @Published var showToolData = false
     @Published private(set) var traces: [URL: [AppTrace]] = [:]
+    @Published private(set) var slimItems: [URL: [AppSlimItem]] = [:]
     @Published var picked: Set<URL> = []
     @Published var orphans: [OrphanGroup]?
     @Published var pickedOrphans: Set<String> = []
@@ -423,13 +530,44 @@ final class UninstallStore: ObservableObject {
     var visibleApps: [InstalledApp] {
         let query = search.trimmingCharacters(in: .whitespaces)
         let filtered = query.isEmpty ? apps : apps.filter { $0.name.localizedCaseInsensitiveContains(query) }
+        let sorted: [InstalledApp]
         switch sort {
-        case .size: return filtered.sorted { ($0.totalBytes ?? -1) > ($1.totalBytes ?? -1) }
-        case .idle: return filtered.sorted { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
+        case .size: sorted = filtered.sorted { ($0.totalBytes ?? -1) > ($1.totalBytes ?? -1) }
+        case .idle: sorted = filtered.sorted { ($0.lastUsed ?? .distantPast) < ($1.lastUsed ?? .distantPast) }
+        }
+        return Self.keepingFamiliesTogether(sorted)
+    }
+
+    /// Each app keeps its own row; the rest of its family follows the first member the sort puts in the list.
+    private static func keepingFamiliesTogether(_ sorted: [InstalledApp]) -> [InstalledApp] {
+        let families = Dictionary(grouping: sorted.filter { AppFamily.name(of: $0) != nil }) { AppFamily.name(of: $0)! }
+        var placed: Set<String> = []
+        return sorted.flatMap { app -> [InstalledApp] in
+            guard let name = AppFamily.name(of: app) else { return [app] }
+            return placed.insert(name).inserted ? families[name] ?? [app] : []
         }
     }
 
     var selectedApp: InstalledApp? { apps.first { $0.id == selectedID } }
+
+
+    private func tool(for app: InstalledApp) -> CreativeApp? {
+        CreativeApp.allCases.first { tool in
+            tool.apps.contains { key in app.bundleIDs.contains { $0 == key || $0.hasPrefix(key + ".") } || app.name.hasPrefix(key) }
+        }
+    }
+
+    /// What a tool's own data is, in its own terms: a video editor keeps projects, not conversations.
+    func dataTitle(for app: InstalledApp) -> String {
+        switch tool(for: app)?.group {
+        case .video, .design: "项目和素材"
+        default: TraceKind.toolData.title
+        }
+    }
+
+    func dataNote(for app: InstalledApp) -> String {
+        tool(for: app)?.group.dataNote ?? "对话、模型和设置"
+    }
 
     /// The last list, for the overview, without measuring anything. The page itself still refreshes it on first visit.
     func showCachedList() {
@@ -500,14 +638,16 @@ final class UninstallStore: ObservableObject {
 
     nonisolated private func measure(_ app: InstalledApp, with uninstaller: AppUninstaller) async {
         let traces = uninstaller.traces(for: app)
+        let slim = uninstaller.slimItems(for: app)
         let used = AppUninstaller.lastUsed(app.appURL, traces: traces)
-        await MainActor.run { self.apply(traces, lastUsed: used, to: app) }
+        await MainActor.run { self.apply(traces, slim: slim, lastUsed: used, to: app) }
     }
 
-    private func apply(_ traces: [AppTrace], lastUsed: Date?, to app: InstalledApp) {
+    private func apply(_ traces: [AppTrace], slim: [AppSlimItem], lastUsed: Date?, to app: InstalledApp) {
         guard let index = apps.firstIndex(where: { $0.id == app.id }) else { return }
         let firstLook = self.traces[app.id] == nil
         self.traces[app.id] = traces
+        slimItems[app.id] = slim
         apps[index].appBytes = traces.first { $0.kind == .app }?.bytes
         apps[index].traceBytes = traces.filter { $0.kind != .app }.reduce(0) { $0 + $1.bytes }
         apps[index].lastUsed = lastUsed
@@ -638,6 +778,36 @@ final class UninstallStore: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    /// Moves one part of the selected app to the Trash; the app stays installed.
+    func removeSlimItem(_ item: AppSlimItem, of app: InstalledApp) {
+        guard !isWorking else { return }
+        guard !isRunning(app) else {
+            message = "\(app.name) 正在运行，请先退出再移除"
+            return
+        }
+        isWorking = true
+        report = nil
+        message = nil
+        let uninstaller = self.uninstaller
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let outcome = Result { try uninstaller.moveSlimItem(item, of: app) }
+            await MainActor.run {
+                guard let self else { return }
+                self.isWorking = false
+                switch outcome {
+                case .success(let trashed):
+                    self.undoable = [(item.url, trashed)]
+                    self.undoAppOriginal = item.url
+                    self.report = CleanupReport(movedCount: 1, movedBytes: item.bytes, failures: [])
+                    CleanupLog.record("移除 \(app.name) 的 \(item.title)", moved: [(item.url, item.bytes)], failedCount: 0)
+                case .failure(let error):
+                    self.message = (error as NSError).code == -128 ? "已取消授权，未移除 \(item.title)" : "无法移除 \(item.title)：\(TrashService.reason(for: error))"
+                }
+            }
+            await self?.measure(app, with: uninstaller)
         }
     }
 

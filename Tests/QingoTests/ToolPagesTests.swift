@@ -180,6 +180,79 @@ struct ToolPagesTests {
         #expect(traces.filter { $0.kind == .preferences }.count == 2)
     }
 
+    @Test func pythonLauncherFolderIsNotListed() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        for (name, id) in [("IDLE", "org.python.IDLE"), ("Python Launcher", "org.python.PythonLauncher")] {
+            let contents = home.appending(path: "Applications/Python 3.14/\(name).app/Contents")
+            try FileManager.default.createDirectory(at: contents, withIntermediateDirectories: true)
+            (["CFBundleIdentifier": id, "CFBundleName": name, "CFBundlePackageType": "APPL"] as NSDictionary)
+                .write(to: contents.appending(path: "Info.plist"), atomically: true)
+        }
+        #expect(!AppUninstaller(policy: SafetyPolicy(home: home)).installedApps().contains { $0.bundleID.hasPrefix("org.python.") })
+    }
+
+    @MainActor @Test func productLinesSitNextToEachOtherAsSeparateRows() {
+        func app(_ name: String, _ id: String, _ bytes: Int64) -> InstalledApp {
+            InstalledApp(id: URL(fileURLWithPath: "/Applications/\(name).app"), name: name, bundleID: id, version: nil, appBytes: bytes)
+        }
+        let store = UninstallStore()
+        store.apps = [app("DaVinci", "com.blackmagic-design.DaVinciResolve", 100), app("RAW", "com.blackmagic-design.BlackmagicRawSpeedTest", 5),
+                      app("WeChat", "com.tencent.xinWeChat", 50), app("WeCom", "com.tencent.WeWorkMac", 40), app("AE", "com.adobe.AfterEffects.application", 30)]
+        // RAW is small but follows DaVinci; Tencent's unrelated apps are not treated as a product line.
+        #expect(store.visibleApps.map(\.name) == ["DaVinci", "RAW", "WeChat", "WeCom", "AE"])
+        store.search = "raw"
+        #expect(store.visibleApps.map(\.name) == ["RAW"])
+    }
+
+    @Test func slimItemsAreExactPathsOnly() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = home.appending(path: "Movies/JianyingPro/User Data/SupplysStore/local-asr-supplies")
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        try Data(count: 2048).write(to: model.appending(path: "model.onnx"))
+        let drafts = home.appending(path: "Movies/JianyingPro/User Data/Projects")
+        try FileManager.default.createDirectory(at: drafts, withIntermediateDirectories: true)
+        let jianying = InstalledApp(id: home.appending(path: "Applications/VideoFusion-macOS.app"), name: "剪映专业版", bundleID: "com.lemon.lvpro", version: nil)
+        let uninstaller = AppUninstaller(policy: SafetyPolicy(home: home))
+        let items = uninstaller.slimItems(for: jianying)
+        #expect(items.map(\.url.lastPathComponent) == ["local-asr-supplies"])
+        #expect(items.first?.bytes == 2048)
+        // Anything not in the recipe is refused, even with a matching identity.
+        let identity = try #require(TrashService.currentIdentity(drafts))
+        let forged = AppSlimItem(id: drafts, title: "草稿", note: "", bytes: 0, identity: identity)
+        #expect(throws: TrashError.self) { try uninstaller.moveSlimItem(forged, of: jianying) }
+        #expect(FileManager.default.fileExists(atPath: drafts.path))
+    }
+
+    @Test func slimItemMovesToTrashAndComesBack() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = home.appending(path: "Movies/JianyingPro/User Data/SupplysStore/local-asr-supplies")
+        try FileManager.default.createDirectory(at: model, withIntermediateDirectories: true)
+        try Data(count: 16).write(to: model.appending(path: "model.onnx"))
+        let jianying = InstalledApp(id: home.appending(path: "Applications/VideoFusion-macOS.app"), name: "剪映专业版", bundleID: "com.lemon.lvpro", version: nil)
+        let uninstaller = AppUninstaller(policy: SafetyPolicy(home: home))
+        let item = try #require(uninstaller.slimItems(for: jianying).first)
+        let trashed = try uninstaller.moveSlimItem(item, of: jianying)
+        #expect(!FileManager.default.fileExists(atPath: model.path))
+        #expect(TrashService.putBack([(original: model, trashed: trashed)]) == [true])
+        #expect(FileManager.default.fileExists(atPath: model.appending(path: "model.onnx").path))
+    }
+
+    @Test func afterEffectsLeftoverIsOnlyAFolderWithNothingButPlugins() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let apps = home.appending(path: "Applications")
+        for path in ["Adobe After Effects 2025/Plug-ins/Old.plugin", "Adobe After Effects 2024/Plug-ins", "Adobe After Effects 2024/Adobe After Effects 2024.app",
+                     "Adobe After Effects 2026/Adobe After Effects 2026.app"] {
+            try FileManager.default.createDirectory(at: apps.appending(path: path), withIntermediateDirectories: true)
+        }
+        let current = InstalledApp(id: apps.appending(path: "Adobe After Effects 2026"), name: "Adobe After Effects 2026",
+                                   bundleID: "com.adobe.AfterEffects.application", version: nil)
+        #expect(AppSlimming.parts(for: current, home: home).map(\.url.lastPathComponent) == ["Adobe After Effects 2025"])
+    }
+
     @Test func backgroundOnlyHelpersAreNotListed() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }

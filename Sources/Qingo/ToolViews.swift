@@ -235,7 +235,7 @@ struct UninstallView: View {
                     TextField("搜索应用", text: $store.search).textFieldStyle(.plain).font(.system(size: 13))
                 }
                 .padding(.horizontal, 10)
-                .frame(width: 210, height: 32)
+                .frame(minWidth: 120, maxWidth: 210, minHeight: 32, maxHeight: 32)
                 .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.fill(0.05)))
                 .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.line))
                 Picker("排序", selection: $store.sort) {
@@ -243,7 +243,8 @@ struct UninstallView: View {
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
-                .frame(width: 190)
+                // As wide as its labels need: a fixed width let it spill over the search field.
+                .fixedSize()
             }
             // Narrow windows give the list less room, so the details keep enough to read.
             GeometryReader { proxy in
@@ -312,14 +313,17 @@ struct UninstallView: View {
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectOrphans() } } label: {
             HStack(spacing: 12) {
                 IconTile(symbol: "trash.slash.fill", tint: Theme.amber, size: 32)
+                // The size goes on the second line: beside the title it would squeeze the title onto two lines in a narrow window.
                 VStack(alignment: .leading, spacing: 3) {
-                    Text("已删除应用的残留").font(.system(size: 14, weight: .semibold))
-                    Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项")
-                        .font(.system(size: 12)).foregroundStyle(Theme.ink3)
-                }
-                Spacer(minLength: 8)
-                if !groups.isEmpty {
-                    Text(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes })).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+                    Text("已删除应用的残留").font(.system(size: 14, weight: .semibold)).lineLimit(1).fixedSize(horizontal: true, vertical: false)
+                    HStack(spacing: 8) {
+                        Text(store.orphans == nil ? "正在查找…" : groups.isEmpty ? "未发现" : "\(groups.count) 项")
+                            .font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                        Spacer(minLength: 8)
+                        if !groups.isEmpty {
+                            Text(ByteFormat.string(groups.reduce(0) { $0 + $1.bytes })).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+                        }
+                    }
                 }
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
             }
@@ -390,13 +394,14 @@ struct UninstallView: View {
                     }
                     let toolData = traces.filter { $0.kind == .toolData }
                     if toolData.count > 1 {
-                        mergedRow("工具数据", traces: toolData, amber: false, open: $store.showToolData)
+                        mergedRow(store.dataTitle(for: app), traces: toolData, amber: false, open: $store.showToolData, dataNote: store.dataNote(for: app))
                         if store.showToolData {
-                            ForEach(toolData) { trace in traceRow(trace).padding(.leading, 30) }
+                            ForEach(toolData) { trace in traceRow(trace, title: store.dataTitle(for: app)).padding(.leading, 30) }
                         }
                     } else {
-                        ForEach(toolData) { trace in traceRow(trace) }
+                        ForEach(toolData) { trace in traceRow(trace, title: store.dataTitle(for: app)) }
                     }
+                    slimSection(app)
                 } else {
                     ProgressView().padding(30)
                 }
@@ -419,13 +424,12 @@ struct UninstallView: View {
     }
 
     /// Several traces as one row: "相关文件：缓存、偏好设置，共 5 处", or a tool's own data, unpicked by default.
-    private func mergedRow(_ title: String, traces: [AppTrace], amber: Bool, open: Binding<Bool>) -> some View {
+    private func mergedRow(_ title: String, traces: [AppTrace], amber: Bool, open: Binding<Bool>, dataNote: String? = nil) -> some View {
         let picked = traces.filter { store.picked.contains($0.id) }.count
         let kinds = traces.reduce(into: [String]()) { names, trace in
             if !names.contains(trace.kind.title) { names.append(trace.kind.title) }
         }
-        let detail = traces.contains { $0.kind == .toolData } ? "对话、模型和设置，共 \(traces.count) 项"
-            : kinds.joined(separator: "、") + "，共 \(traces.count) 项"
+        let detail = dataNote.map { "\($0)，共 \(traces.count) 项" } ?? kinds.joined(separator: "、") + "，共 \(traces.count) 项"
         return HStack(spacing: 12) {
             ToolCheckbox(on: picked > 0, amber: amber, partial: picked > 0 && picked < traces.count)
             VStack(alignment: .leading, spacing: 3) {
@@ -453,13 +457,67 @@ struct UninstallView: View {
         .onTapGesture { store.toggle(traces) }
     }
 
-    private func traceRow(_ trace: AppTrace) -> some View {
+    /// What can go while the app stays: parts it runs without, and where the app clears its own generated files.
+    @ViewBuilder
+    private func slimSection(_ app: InstalledApp) -> some View {
+        let items = store.slimItems[app.id] ?? []
+        let path = AppSlimming.inAppPath(for: app)
+        if !items.isEmpty || path != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text("不卸载也可腾出").font(.system(size: 14, weight: .semibold))
+                    Spacer(minLength: 8)
+                    if !items.isEmpty {
+                        Text(ByteFormat.string(items.reduce(0) { $0 + $1.bytes })).font(.system(size: 13.5, weight: .semibold)).monospacedDigit()
+                    }
+                }
+                .padding(.horizontal, 18)
+                .padding(.top, 18)
+                .padding(.bottom, 10)
+                ForEach(items) { item in
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(item.title).font(.system(size: 13.5, weight: .medium)).lineLimit(1)
+                            Text(item.note).font(.system(size: 12)).foregroundStyle(Theme.ink3).fixedSize(horizontal: false, vertical: true)
+                        }
+                        Spacer(minLength: 8)
+                        Text(ByteFormat.string(item.bytes)).font(.system(size: 13.5, weight: .medium)).monospacedDigit()
+                        Button("移除") { store.removeSlimItem(item, of: app) }
+                            .buttonStyle(ToolbarButtonStyle(tinted: true))
+                            .disabled(store.isWorking)
+                            .help("移到废纸篓，可恢复")
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                    .contextMenu { Button("在访达中显示") { NSWorkspace.shared.activateFileViewerSelecting([item.url]) } }
+                }
+                if let path {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("缓存在应用内清理").font(.system(size: 13.5, weight: .medium))
+                        Text(path).font(.system(size: 12)).foregroundStyle(Theme.ink2).fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 10)
+                    .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                }
+                if let why = AppSlimming.whyLarge(for: app) {
+                    Text(why).font(.system(size: 12)).foregroundStyle(Theme.ink3).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                }
+            }
+        }
+    }
+
+    private func traceRow(_ trace: AppTrace, title: String? = nil) -> some View {
         let on = trace.kind == .app || store.picked.contains(trace.id)
         return HStack(spacing: 12) {
             ToolCheckbox(on: on)
                 .opacity(trace.kind == .app ? 0.6 : 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text(trace.kind.title).font(.system(size: 13.5, weight: .medium))
+                Text(title ?? trace.kind.title).font(.system(size: 13.5, weight: .medium))
                 Text(ToolText.short(trace.url)).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.middle)
             }
             Spacer(minLength: 8)
@@ -570,8 +628,8 @@ struct UninstallView: View {
             let traces = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }
             TrashConfirmSheet(title: "卸载 \(app.name)",
                               subtitle: "共 \(traces.count) 项，\(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes }))"
-                                + (traces.contains { $0.kind == .toolData } ? "，包括它的对话和设置" : "") + "。移到废纸篓后可随时恢复。",
-                              rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
+                                + (traces.contains { $0.kind == .toolData } ? "，包括它的\(store.dataNote(for: app))" : "") + "。移到废纸篓后可随时恢复。",
+                              rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind == .toolData ? store.dataTitle(for: app) : $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
                                                             warning: nil) },
                               confirmed: $store.confirmDecided, actionTitle: "卸载", appearance: appearance,
                               onConfirm: store.uninstall, onCancel: { store.showConfirm = false })

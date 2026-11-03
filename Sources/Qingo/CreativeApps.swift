@@ -107,8 +107,8 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static let davinci = CreativeApp("resolve", "DaVinci Resolve", .video, short: "达芬奇", apps: ["com.blackmagic-design.DaVinciResolve", "DaVinci Resolve"],
                                      folders: ["DaVinci Resolve"], cleanHow: "渲染缓存请在达芬奇中选择「播放 → 删除渲染缓存」")
     static let jianying = CreativeApp("jianying", "剪映专业版", .video, short: "剪映", apps: ["com.lemon.lvpro", "剪映专业版", "VideoFusion-macOS"],
-                                      roots: ["Movies/JianyingPro"], caches: ["Movies/JianyingPro/User Data/Cache"],
-                                      cleanHow: "缓存可在此清理，不影响草稿；也可在剪映「全局设置 → 清理缓存」中清理")
+                                      roots: ["Movies/JianyingPro"], caches: ["Movies/JianyingPro/User Data/Cache", "Movies/JianyingPro/User Data/CEF/Cache", "Movies/JianyingPro/User Data/CEF/GrShaderCache"],
+                                      cleanHow: "缓存可在此清理，不影响草稿；也可在剪映「全局设置 → 缓存管理」中清理")
     static let capcut = CreativeApp("capcut", "CapCut", .video, apps: ["com.lemon.lvoverseas", "CapCut"],
                                     roots: ["Movies/CapCut"], caches: ["Movies/CapCut/User Data/Cache"])
     static let filmora = CreativeApp("filmora", "万兴喵影 Filmora", .video, short: "Filmora", apps: ["Wondershare Filmora", "万兴喵影"],
