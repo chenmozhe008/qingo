@@ -154,13 +154,13 @@
 - Python 启动器不列（`isRuntimeLauncher`）：解释器在 /Library/Frameworks，启动器的「N 个月未使用」不代表解释器没人用，作者本机定时任务和脚本都靠它
 - 「已删除应用的残留」是列表上方单独一张小卡（之前钉在列表底部，会切掉最后一行，用户嫌乱）
 - 列 /Applications、~/Applications（含下一层子文件夹）里的 App；**一个子文件夹里有多个 App 的算一个软件**（如 /Applications/DaVinci Resolve 里主程序、卸载程序、工具共 5 个，用户嫌拆开列），用主程序的名字和图标，卸载时整个文件夹进废纸篓，残留按所有成员的 bundle id 找（`InstalledApp.mainApp` / `memberIDs`）；排除 `com.apple.*`、小清自己、**纯后台辅助程序**（`LSBackgroundOnly`，如用户录音工作台的 RecordingInboxHelper：没有界面、靠它持有权限，误卸会让自动化静默失效；2026-10-25 用户问「这是个啥」）。菜单栏 App（`LSUIElement`）照常列出。左列表按大小 / 按多久没用（Spotlight `kMDItemLastUsedDate`），搜索；右侧是选中 App 的全部痕迹
-- 痕迹只在 ~/Library 的固定子目录按 bundle id / App 名精确找：Application Support、Caches、Preferences（`<id>.plist` 和 `<id>.*.plist`）、Saved Application State、HTTPStorages、WebKit、Cookies、Logs、LaunchAgents（文件名以 id 开头或 plist 里指向该 App）。默认全勾（**偏好设置也勾**，用户定）；`CreativeApp` 认识的工具，其 Application Support 目录和 `roots` 算「工具数据」**默认不勾**
+- 痕迹只在 ~/Library 的固定子目录按 bundle id / App 名精确找：Application Support、Caches、Preferences（`<id>.plist` 和 `<id>.*.plist`）、Saved Application State、HTTPStorages、WebKit、Cookies、Logs、LaunchAgents（文件名以 id 开头或 plist 里指向该 App）。默认全勾（**偏好设置也勾**，用户定）；`CreativeApp` 认识的工具，其 Application Support 目录和 `roots` 算「工具数据」（默认勾）；剪辑和设计软件的算「项目和素材」（**默认不勾**）
 - Containers / Group Containers 不读不删（读会弹授权），存在就提示去访达手动删；`SafetyPolicy.isProtected` 的路径跳过
 - 正在运行的 App 不让卸载；App 本身用 `NSWorkspace.recycle`（root 所有的 App 系统会要密码），其余用 `trashItem`，删前核对身份和占用；全部进废纸篓，可撤销
 - 打开即显示上次的列表和大小（`results/apps.json`），后台 4 个一组静默重量，不清空、不逐行转圈；选中还没量过的 App 立刻单独量（用户嫌「一打开就像在扫描」）
 - 详情页：App 本身 / 「相关文件」（所有小残留合一行，默认勾，箭头展开）/ 「工具数据」或「项目和素材」（合一行）/ 「系统支持文件」——用户嫌一堆 KB 级小行
 - 系统支持文件（`systemFolders`，目前只有达芬奇的 `/Library/Application Support/Blackmagic Design`，约 1.1 GB）只认精确路径、走管理员授权。默认不勾的原因：达芬奇的 LUT 文件夹也是用户放自制 LUT 的地方（作者本机就有）。Adobe 的 `/Library/.../Adobe` 是全家共用，不做
-- 「已删除应用的残留」：上述目录里 bundle id 形状（≥3 段、非 com.apple./group.）、且**没有任何已装 App 同厂商前缀（前两段）**、LaunchServices 也找不到的条目，按 id 合并成一行；算第二档，默认不勾、确认后删
+- 「已删除应用的残留」：上述目录里 bundle id 形状（≥3 段、非 com.apple./group.）、且**没有任何已装 App 同厂商前缀（前两段）**、LaunchServices 也找不到的条目，按 id 合并成一行，默认全选
 
 **开发工程**（`DevProjects.swift`）
 - 快速扫描时后台检查代码文件夹（`DevStore.discoverIfNeeded`），结果只进总览的「开发缓存」卡，不并入一键清理；有待处理选择、确认、清理或撤销记录时不自动重扫
