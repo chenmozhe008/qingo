@@ -250,6 +250,16 @@ struct ToolPagesTests {
         #expect(FileManager.default.fileExists(atPath: drafts.path))
     }
 
+    @Test func hardwareToolsAreNotOfferedWhileADeviceIsConnected() {
+        let home = URL(fileURLWithPath: "/tmp/none")
+        let resolve = InstalledApp(id: URL(fileURLWithPath: "/Applications/DaVinci Resolve"), name: "DaVinci Resolve", bundleID: "com.blackmagic-design.DaVinciResolve", version: nil)
+        let hardware = "DaVinci Control Panels Setup.app"
+        #expect(AppSlimming.parts(for: resolve, home: home, hardwareConnected: false).contains { $0.url.lastPathComponent == hardware })
+        let connected = AppSlimming.parts(for: resolve, home: home, hardwareConnected: true).map(\.url.lastPathComponent)
+        #expect(!connected.contains(hardware) && !connected.contains("davinci_panels.tgz") && !connected.contains("Fairlight Studio Utility.app"))
+        #expect(connected.contains("DaVinci Resolve Manual.pdf"))
+    }
+
     @Test func slimItemMovesToTrashAndComesBack() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }

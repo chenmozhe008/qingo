@@ -503,6 +503,11 @@ struct UninstallView: View {
                     .padding(.vertical, 10)
                     .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
                 }
+                if !items.isEmpty {
+                    Text("以上各项不影响应用的日常功能，移除后可从废纸篓放回。").font(.system(size: 12)).foregroundStyle(Theme.ink3).fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 18)
+                        .padding(.top, 8)
+                }
                 if let why = AppSlimming.whyLarge(for: app) {
                     Text(why).font(.system(size: 12)).foregroundStyle(Theme.ink3).fixedSize(horizontal: false, vertical: true)
                         .padding(.horizontal, 18)

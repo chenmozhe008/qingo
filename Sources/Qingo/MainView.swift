@@ -444,7 +444,7 @@ struct MainView: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("关于与反馈（v\(AppInfo.version)）")
+                .help("关于与反馈（v\(AppInfo.version)\(AppInfo.isDev ? " 开发版" : "")）")
                 Spacer(minLength: 4)
                 appearancePicker
             }

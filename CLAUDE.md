@@ -99,6 +99,7 @@
   - 声音跑 `qa_audio.py`：关键音效（点击、警告、完成）在触发时刻不能比人声低 8 dB 以上；最后 4 秒不能掉到静音。不能只看整体响度
   - 内容自查：同一画面里的图标不重复（AE 和 Pr 要分开）、字幕和配音逐字一致、用词对一遍上面的界面用词表
   - 把用户之前每一轮的反馈当验收清单逐条对一遍再交付
+- **开发版与正式版（2026-11-03 用户定，照闪电全能下载，共用约定见 `~/Coding/tools/mac-app-workflow/README.md`）**：本机一直用最新开发版（`./script/build_and_run.sh --install-dev`，关于页标「开发版」），**用户说提交才推 GitHub 并上传安装包**。`build_and_run.sh` 默认打开发包（`QGDevBuild=1`）；`package_release.sh` 走 `QINGO_RELEASE_BUILD=1`，要求工作区干净、`v<版本>` 标签指向当前提交，所以先提交、打标签，再打包
 - **版本号（2026-10-27 用户定：「别的工具每一版都有编号，不能每次都用一个」）**：每次装到用户电脑或发布，都先升版本号（`script/build_and_run.sh` 的 `APP_VERSION`）。修问题、改文字升第三位（1.9.1 → 1.9.2），加功能升第二位（1.9 → 1.10）；CHANGELOG 每个版本单独一节；每个发布版打 `v<版本>` 标签、单独一个 GitHub Release，已发布的版本不改。宣传视频等交付物也按 v1、v2 另存，不覆盖
 - **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，临时签名（证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases（`gh release create v<版本> … --latest`，说明照上一版的格式：简介 / 下载安装 / 本版更新内容；中间没单独发布的版本，改动并进这一版）。「无法验证开发者」提示去不掉（2026-10-29 用户问过）：要 Apple Developer ID 签名＋公证（开发者账号 99 美元/年），没办就只能在 README 和 Release 里写「隐私与安全性 → 仍要打开」或终端 `xattr -dr com.apple.quarantine /Applications/小清.app`。**2026-10-29 用户定：先不花钱，不办**；以后要办：用户 iPhone「Apple Developer」App 实名申请个人账号 → 生成 Developer ID Application 证书＋App 专用密码 → 改 `package_release.sh`：Developer ID 签名＋hardened runtime → `notarytool submit --wait` → `stapler staple`（本机 notarytool/stapler 在移动硬盘的 Xcode-26.5 里）。代价：证书名是实名，会公开在签名里。换图标后 Dock 还显示旧图：`lsregister -f` 这个 App 再 `killall Dock`
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
@@ -149,7 +150,7 @@
 
 **卸载应用**（`AppUninstaller.swift`）
 - **同系列挨着放，不合并**（2026-11-03 用户：「不是合并，是挨着放」）：`AppFamily` 手写名单（Blackmagic、Adobe、Microsoft Office），每个 App 仍占一行，同系列紧跟排序中排第一的成员。别按 bundle id 前两段自动归类：com.tencent 是微信、企业微信、腾讯会议，com.microsoft 里有 Edge
-- **不卸载也可腾出**（2026-11-03 用户：「能清的太少，又要数据安全」，`AppSlimming`）：只认手写的精确路径，`moveSlimItem` 再核对一次。**不瘦 .app 内部**（删架构、语言包会破坏签名，软件可能打不开），大的部分老实写「不能单独删除」。实测依据：`Resolve` 主程序不引用 `Prereqs`；Resolve 只在连调色台时调用 Control Panels Setup；剪映模型目录比安装晚，`pc_cache_management` 确认菜单名「缓存管理」；AE 旧版目录只剩 Plug-ins 才列。要加新条目先做同样的核对，新条目默认只列能重新获得的东西
+- **不卸载也可腾出**（2026-11-03 用户：「能清的太少，又要数据安全」，`AppSlimming`）：只认手写的精确路径，`moveSlimItem` 再核对一次。**不瘦 .app 内部**（删架构、语言包会破坏签名，软件可能打不开），大的部分老实写「不能单独删除」。实测依据：`Resolve` 主程序不引用 `Prereqs`；Resolve 只在连调色台时调用 Control Panels Setup；剪映模型目录比安装晚，`pc_cache_management` 确认菜单名「缓存管理」；AE 旧版目录只剩 Plug-ins 才列；2026-11-03 把 `Resolve.bak` 和两个安装包挪开后启动达芬奇，脚本接口正常、项目库可读（三个硬件工具因目录要密码未做同样实测，依据是独立 App、主程序只在连硬件时调用）。**都不进一键清理，只能手动点；USB 上连着 Blackmagic 设备时不列硬件工具**（用户问「清掉会不会影响别人用」，`blackmagicHardwareConnected`，厂商 ID 0x1EDB）。要加新条目先做同样的核对，新条目默认只列能重新获得的东西
 - Python 启动器不列（`isRuntimeLauncher`）：解释器在 /Library/Frameworks，启动器的「N 个月未使用」不代表解释器没人用，作者本机定时任务和脚本都靠它
 - 「已删除应用的残留」是列表上方单独一张小卡（之前钉在列表底部，会切掉最后一行，用户嫌乱）
 - 列 /Applications、~/Applications（含下一层子文件夹）里的 App；**一个子文件夹里有多个 App 的算一个软件**（如 /Applications/DaVinci Resolve 里主程序、卸载程序、工具共 5 个，用户嫌拆开列），用主程序的名字和图标，卸载时整个文件夹进废纸篓，残留按所有成员的 bundle id 找（`InstalledApp.mainApp` / `memberIDs`）；排除 `com.apple.*`、小清自己、**纯后台辅助程序**（`LSBackgroundOnly`，如用户录音工作台的 RecordingInboxHelper：没有界面、靠它持有权限，误卸会让自动化静默失效；2026-10-25 用户问「这是个啥」）。菜单栏 App（`LSUIElement`）照常列出。左列表按大小 / 按多久没用（Spotlight `kMDItemLastUsedDate`），搜索；右侧是选中 App 的全部痕迹

@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-CODESIGN_IDENTITY=- ./script/build_and_run.sh --package
+QINGO_RELEASE_BUILD=1 CODESIGN_IDENTITY=- ./script/build_and_run.sh --package
 VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" dist/小清.app/Contents/Info.plist)
 OUT=tmp/release
 rm -rf "$OUT" && mkdir -p "$OUT"

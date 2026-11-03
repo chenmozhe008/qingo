@@ -1,6 +1,7 @@
 import AppKit
 import Darwin
 import Foundation
+import IOKit
 
 struct InstalledApp: Identifiable, Codable, Sendable {
     /// The .app, or for a suite the folder holding it (/Applications/DaVinci Resolve), which goes as a whole.
@@ -120,16 +121,33 @@ struct AppSlimItem: Identifiable, Sendable {
 enum AppSlimming {
     struct Part { let url: URL; let title: String; let note: String }
 
-    static func parts(for app: InstalledApp, home: URL, system: URL = URL(fileURLWithPath: "/")) -> [Part] {
+    /// Whether a Blackmagic device (Speed Editor, colour panel, capture box) is on USB right now.
+    /// While one is, the tools that set it up are not offered: its owner plainly needs them.
+    static func blackmagicHardwareConnected() -> Bool {
+        var iterator: io_iterator_t = 0
+        guard let matching = IOServiceMatching("IOUSBHostDevice") as NSMutableDictionary? else { return false }
+        matching["idVendor"] = 0x1EDB
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, matching, &iterator) == KERN_SUCCESS else { return false }
+        defer { IOObjectRelease(iterator) }
+        let device = IOIteratorNext(iterator)
+        defer { if device != 0 { IOObjectRelease(device) } }
+        return device != 0
+    }
+
+    static func parts(for app: InstalledApp, home: URL, system: URL = URL(fileURLWithPath: "/"),
+                      hardwareConnected: Bool = blackmagicHardwareConnected()) -> [Part] {
         switch app.bundleID {
         case "com.blackmagic-design.DaVinciResolve":
             let prereqs = system.appending(path: "Library/Application Support/Blackmagic Design/DaVinci Resolve/Prereqs")
-            return [Part(url: app.id.appending(path: "DaVinci Control Panels Setup.app"), title: "调色台设置工具", note: "仅连接达芬奇调色台时需要"),
-                    Part(url: app.id.appending(path: "Blackmagic Remote Monitor.app"), title: "远程监看工具", note: "仅使用远程监看时需要"),
-                    Part(url: app.id.appending(path: "Fairlight Studio Utility.app"), title: "Fairlight 设置工具", note: "仅连接 Fairlight 调音台时需要"),
-                    Part(url: app.id.appending(path: "DaVinci Resolve Manual.pdf"), title: "说明书副本", note: "应用内还有一份"),
-                    Part(url: prereqs.appending(path: "davinci_panels.tgz"), title: "调色台驱动安装包", note: "安装时已使用，升级时会重新放入"),
-                    Part(url: prereqs.appending(path: "blackmagic_raw_player_installer.tgz"), title: "RAW 播放器安装包", note: "安装时已使用，升级时会重新放入")]
+            var parts = [Part(url: app.id.appending(path: "Blackmagic Remote Monitor.app"), title: "远程监看工具", note: "仅使用远程监看时需要"),
+                         Part(url: app.id.appending(path: "DaVinci Resolve Manual.pdf"), title: "说明书副本", note: "应用内还有一份"),
+                         Part(url: prereqs.appending(path: "blackmagic_raw_player_installer.tgz"), title: "RAW 播放器安装包", note: "安装时已使用，重新安装达芬奇时会放回")]
+            if !hardwareConnected {
+                parts += [Part(url: app.id.appending(path: "DaVinci Control Panels Setup.app"), title: "调色台设置工具", note: "仅连接调色台或剪辑键盘时需要，用于设置和升级固件"),
+                          Part(url: app.id.appending(path: "Fairlight Studio Utility.app"), title: "Fairlight 设置工具", note: "仅连接 Fairlight 调音台时需要"),
+                          Part(url: prereqs.appending(path: "davinci_panels.tgz"), title: "调色台驱动安装包", note: "安装时已使用，重新安装达芬奇时会放回")]
+            }
+            return parts
         case "com.lemon.lvpro":
             return [Part(url: home.appending(path: "Movies/JianyingPro/User Data/SupplysStore/local-asr-supplies"), title: "离线字幕识别模型",
                          note: "下次使用离线字幕识别时需重新下载")]

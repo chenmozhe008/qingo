@@ -6,7 +6,17 @@ APP_NAME="小清"
 EXECUTABLE_NAME="Qingo"
 BUNDLE_ID="io.github.chenmozhe008.qingo"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="1.16.1"
+APP_VERSION="1.16.2"
+# 默认生成开发版；正式包必须明确指定，并从版本标签对应的干净源码构建。
+DEV_BUILD=1
+if [[ "${QINGO_RELEASE_BUILD:-0}" == "1" ]]; then
+  if [[ -n "$(git status --porcelain 2>/dev/null)" ]] || ! git rev-parse -q --verify "refs/tags/v${APP_VERSION}^{commit}" >/dev/null \
+     || [[ "$(git rev-parse HEAD)" != "$(git rev-parse "v${APP_VERSION}^{commit}")" ]]; then
+    echo "正式打包需要干净的工作区，以及指向当前提交的 v${APP_VERSION} 标签。" >&2
+    exit 1
+  fi
+  DEV_BUILD=0
+fi
 CODESIGN_IDENTITY="${CODESIGN_IDENTITY:-Apple Development}"
 # Without that certificate (e.g. a fresh clone), fall back to ad-hoc signing so the build still runs locally.
 if [[ "$CODESIGN_IDENTITY" != "-" ]] && ! security find-identity -v -p codesigning 2>/dev/null | grep -q "$CODESIGN_IDENTITY"; then
@@ -63,6 +73,7 @@ cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleDisplayName</key><string>$APP_NAME</string>
   <key>CFBundleIconFile</key><string>AppIcon.icns</string>
   <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+  <key>QGDevBuild</key><string>$DEV_BUILD</string>
   <key>CFBundleVersion</key><string>$BUILD_NUMBER</string>
   <key>NSHumanReadableCopyright</key><string>小清 Qingo，作者 @沉默者之二，MIT 开源</string>
   <key>CFBundlePackageType</key><string>APPL</string>
@@ -84,6 +95,7 @@ open_app() {
 
 case "$MODE" in
   --package|package) ;;
+  --install-dev) [[ "$DEV_BUILD" == 1 ]] || { echo "只能安装开发构建。" >&2; exit 1; }; "$HOME/Coding/tools/mac-app-workflow/install-dev.sh" qingo "$APP_BUNDLE" ;;
   run) open_app ;;
   --debug|debug) lldb -- "$APP_BINARY" ;;
   --logs|logs)
@@ -100,7 +112,7 @@ case "$MODE" in
     pgrep -x "$EXECUTABLE_NAME" >/dev/null
     ;;
   *)
-    echo "usage: $0 [run|--package|--debug|--logs|--telemetry|--verify]" >&2
+    echo "usage: $0 [run|--package|--install-dev|--debug|--logs|--telemetry|--verify]" >&2
     exit 2
     ;;
 esac

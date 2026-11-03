@@ -11,6 +11,9 @@ enum AppInfo {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "开发版"
     }
 
+    /// A build for this Mac, not yet published: marked so it is not taken for the released version.
+    static var isDev: Bool { (Bundle.main.infoDictionary?["QGDevBuild"] as? String) == "1" }
+
     static var build: String {
         Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"
     }
@@ -138,7 +141,7 @@ struct AboutView: View {
                     Text("Mac 清理工具").font(.system(size: 17, weight: .semibold)).foregroundStyle(Theme.ink2)
                 }
                 HStack(spacing: 14) {
-                    Text("Qingo v\(AppInfo.version)").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink2)
+                    Text("Qingo v\(AppInfo.version)\(AppInfo.isDev ? "（开发版）" : "")").font(.system(size: 12.5, weight: .medium)).foregroundStyle(Theme.ink2)
                     Text("作者 \(AppInfo.author)").font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
                     Button { NSWorkspace.shared.open(AppInfo.repository) } label: {
                         HStack(spacing: 6) {

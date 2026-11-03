@@ -103,6 +103,15 @@ struct UpdateVersionTests {
 }
 
 struct UpdateFeedTests {
+    @Test func acceptsOnlyOfficialVersionedReleasePages() throws {
+        let url = try #require(URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/v1.15.2"))
+        let release = try #require(UpdateChecker.releaseFromPage(url))
+        #expect(release.version == "1.15.2")
+        #expect(release.asset == nil)
+        #expect(UpdateChecker.releaseFromPage(URL(string: "https://example.com/chenmozhe008/qingo/releases/tag/v1.15.2")!) == nil)
+        #expect(UpdateChecker.releaseFromPage(URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/not-a-version")!) == nil)
+    }
+
     @Test func readsVersionZipDigestAndNotes() throws {
         let json = """
         {"tag_name":"v1.14.0","html_url":"https://github.com/chenmozhe008/qingo/releases/tag/v1.14.0",
