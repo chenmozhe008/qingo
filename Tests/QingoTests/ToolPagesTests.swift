@@ -180,6 +180,31 @@ struct ToolPagesTests {
         #expect(traces.filter { $0.kind == .preferences }.count == 2)
     }
 
+    @Test func projectsAndSystemFilesStayUnlessPicked() {
+        func trace(_ kind: TraceKind) -> AppTrace {
+            AppTrace(id: URL(fileURLWithPath: "/x"), kind: kind, bytes: 0, identity: FileIdentity(device: 0, inode: 0), isDirectory: true)
+        }
+        #expect(!AppUninstaller.pickedByDefault(trace(.projects)))
+        #expect(!AppUninstaller.pickedByDefault(trace(.system)))
+        #expect(AppUninstaller.pickedByDefault(trace(.toolData)))
+        #expect(AppUninstaller.pickedByDefault(trace(.caches)))
+    }
+
+    @Test func systemFolderMovesOnlyForItsOwnApp() throws {
+        let home = try makeHome()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let resolve = InstalledApp(id: URL(fileURLWithPath: "/Applications/DaVinci Resolve"), name: "DaVinci Resolve", bundleID: "com.blackmagic-design.DaVinciResolve", version: nil)
+        let other = InstalledApp(id: URL(fileURLWithPath: "/Applications/Other.app"), name: "Other", bundleID: "com.example.other", version: nil)
+        #expect(AppUninstaller.systemFolders(for: other).isEmpty)
+        let folder = try #require(AppUninstaller.systemFolders(for: resolve).first)
+        let trace = AppTrace(id: folder, kind: .system, bytes: 0, identity: FileIdentity(device: 0, inode: 0), isDirectory: true)
+        let uninstaller = AppUninstaller(policy: SafetyPolicy(home: home))
+        #expect(throws: TrashError.self) { try uninstaller.moveTrace(trace, of: other) }
+        #expect(throws: TrashError.self) { try uninstaller.moveTrace(trace) }
+        // A wrong identity is refused before any password prompt.
+        #expect(throws: TrashError.self) { try uninstaller.moveTrace(trace, of: resolve) }
+    }
+
     @Test func pythonLauncherFolderIsNotListed() throws {
         let home = try makeHome()
         defer { try? FileManager.default.removeItem(at: home) }

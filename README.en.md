@@ -57,7 +57,7 @@ Qingo (小清) is a native SwiftUI app with light, dark and automatic appearance
 
 A quick scan checks common caches and known tool folders, usually in a few seconds to a few dozen seconds; a full scan covers your entire home folder.
 
-The **Tools** section of the sidebar also includes an **app uninstaller**, which moves an app together with its support files, caches, preferences and background items in `~/Library` to the Trash (restorable), and a cleaner for leftovers of already-deleted apps.
+The **Tools** section of the sidebar also includes an **app uninstaller**, which moves an app together with its support files, caches, preferences and background items in `~/Library` to the Trash (restorable; projects and drafts of editing and design apps stay unless picked), shows parts that can go without uninstalling and where each app clears its own cache, and a cleaner for leftovers of already-deleted apps.
 
 ## Installation
 

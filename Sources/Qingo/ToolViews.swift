@@ -364,7 +364,7 @@ struct UninstallView: View {
 
     private func appDetail(_ app: InstalledApp) -> some View {
         let traces = store.traces[app.id]
-        let leftovers = (traces ?? []).filter { $0.kind != .app }.reduce(Int64(0)) { $0 + $1.bytes }
+        let leftovers = (traces ?? []).filter { $0.kind != .app && store.picked.contains($0.id) }.reduce(Int64(0)) { $0 + $1.bytes }
         return ScrollView {
             VStack(spacing: 0) {
                 // Side by side when there is room; otherwise the button goes under the name, never squeezed.
@@ -382,7 +382,7 @@ struct UninstallView: View {
                 .padding(18)
                 if let traces {
                     // The bundle, then all small leftovers as one row (details on demand), then a tool's own data.
-                    let related = traces.filter { $0.kind != .app && $0.kind != .toolData }
+                    let related = traces.filter { ![.app, .toolData, .projects, .system].contains($0.kind) }
                     ForEach(traces.filter { $0.kind == .app }) { trace in traceRow(trace) }
                     if related.count > 1 {
                         mergedRow("相关文件", traces: related, amber: false, open: $store.showRelated)
@@ -392,15 +392,16 @@ struct UninstallView: View {
                     } else {
                         ForEach(related) { trace in traceRow(trace) }
                     }
-                    let toolData = traces.filter { $0.kind == .toolData }
+                    let toolData = traces.filter { $0.kind == .toolData || $0.kind == .projects }
                     if toolData.count > 1 {
-                        mergedRow(store.dataTitle(for: app), traces: toolData, amber: false, open: $store.showToolData, dataNote: store.dataNote(for: app))
+                        mergedRow(toolData[0].kind.title, traces: toolData, amber: false, open: $store.showToolData, dataNote: store.dataNote(for: app))
                         if store.showToolData {
-                            ForEach(toolData) { trace in traceRow(trace, title: store.dataTitle(for: app)).padding(.leading, 30) }
+                            ForEach(toolData) { trace in traceRow(trace).padding(.leading, 30) }
                         }
                     } else {
-                        ForEach(toolData) { trace in traceRow(trace, title: store.dataTitle(for: app)) }
+                        ForEach(toolData) { trace in traceRow(trace, note: toolData[0].kind == .projects ? "默认保留" : nil) }
                     }
+                    ForEach(traces.filter { $0.kind == .system }) { trace in traceRow(trace, note: "默认保留，可能含自行添加的 LUT；需管理员密码") }
                     slimSection(app)
                 } else {
                     ProgressView().padding(30)
@@ -511,14 +512,15 @@ struct UninstallView: View {
         }
     }
 
-    private func traceRow(_ trace: AppTrace, title: String? = nil) -> some View {
+    private func traceRow(_ trace: AppTrace, note: String? = nil) -> some View {
         let on = trace.kind == .app || store.picked.contains(trace.id)
         return HStack(spacing: 12) {
             ToolCheckbox(on: on)
                 .opacity(trace.kind == .app ? 0.6 : 1)
             VStack(alignment: .leading, spacing: 3) {
-                Text(title ?? trace.kind.title).font(.system(size: 13.5, weight: .medium))
+                Text(trace.kind.title).font(.system(size: 13.5, weight: .medium))
                 Text(ToolText.short(trace.url)).font(.system(size: 12)).foregroundStyle(Theme.ink3).lineLimit(1).truncationMode(.middle)
+                if let note { Text(note).font(.system(size: 12)).foregroundStyle(Theme.ink3).fixedSize(horizontal: false, vertical: true) }
             }
             Spacer(minLength: 8)
             Text(ByteFormat.string(trace.bytes)).font(.system(size: 13.5, weight: .medium)).monospacedDigit().frame(width: 80, alignment: .trailing)
@@ -628,8 +630,8 @@ struct UninstallView: View {
             let traces = (store.traces[app.id] ?? []).filter { $0.kind == .app || store.picked.contains($0.id) }
             TrashConfirmSheet(title: "卸载 \(app.name)",
                               subtitle: "共 \(traces.count) 项，\(ByteFormat.string(traces.reduce(0) { $0 + $1.bytes }))"
-                                + (traces.contains { $0.kind == .toolData } ? "，包括它的\(store.dataNote(for: app))" : "") + "。移到废纸篓后可随时恢复。",
-                              rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind == .toolData ? store.dataTitle(for: app) : $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
+                                + (traces.contains { $0.kind == .toolData || $0.kind == .projects } ? "，包括它的\(store.dataNote(for: app))" : "") + "。移到废纸篓后可随时恢复。",
+                              rows: traces.map { ConfirmRow(id: $0.url, title: $0.kind.title, detail: ToolText.short($0.url), bytes: $0.bytes,
                                                             warning: nil) },
                               confirmed: $store.confirmDecided, actionTitle: "卸载", appearance: appearance,
                               onConfirm: store.uninstall, onCancel: { store.showConfirm = false })

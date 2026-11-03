@@ -23,7 +23,7 @@ struct InstalledApp: Identifiable, Codable, Sendable {
 
 /// Where an app left something. Each kind is one row group on the uninstall page.
 enum TraceKind: Int, CaseIterable, Sendable {
-    case app, support, caches, preferences, background, web, logs, toolData
+    case app, support, caches, preferences, background, web, logs, toolData, projects, system
 
     var title: String {
         switch self {
@@ -35,6 +35,8 @@ enum TraceKind: Int, CaseIterable, Sendable {
         case .web: "网页数据"
         case .logs: "日志"
         case .toolData: "工具数据"
+        case .projects: "项目和素材"
+        case .system: "系统支持文件"
         }
     }
 }
@@ -273,9 +275,11 @@ struct AppUninstaller: Sendable {
         let names = Set(ids + [app.name, Bundle(url: app.appURL)?.infoDictionary?["CFBundleName"] as? String].compactMap { $0 }
             .filter { $0.count > 2 && !generic.contains($0.lowercased()) })
         let tool = CreativeApp.allCases.first { $0.isInstalled && ids.contains($0.bundleID) }
+        // An editor's own data is the user's work, not a tool's settings: kept unless asked for.
+        let dataKind: TraceKind = tool.map { [.video, .design].contains($0.group) } == true ? .projects : .toolData
         for name in names {
             let support = library.appending(path: "Application Support/\(name)")
-            found.append((support, tool == nil ? .support : .toolData))
+            found.append((support, tool == nil ? .support : dataKind))
             found.append((library.appending(path: "Caches/\(name)"), .caches))
             found.append((library.appending(path: "Logs/\(name)"), .logs))
         }
@@ -288,14 +292,22 @@ struct AppUninstaller: Sendable {
         found += launchAgents(for: app).map { ($0, .background) }
         // A recognized tool's own data roots (conversations, models…): listed, never picked by default.
         if let tool {
-            found += tool.roots.map { (policy.home.appending(path: $0), .toolData) }
+            found += tool.roots.map { (policy.home.appending(path: $0), dataKind) }
             for prefix in [""] + CreativeApp.vendorFolders.map({ $0 + "/" }) {
-                found += tool.folders.map { (library.appending(path: "Application Support/\(prefix)\($0)"), .toolData) }
+                found += tool.folders.map { (library.appending(path: "Application Support/\(prefix)\($0)"), dataKind) }
                 found += tool.folders.map { (library.appending(path: "Caches/\(prefix)\($0)"), .caches) }
             }
         }
+        found += Self.systemFolders(for: app).map { ($0, .system) }
         // Grouped by kind, the app first and a tool's own data last.
         return measured(found).enumerated().sorted { ($0.element.kind.rawValue, $0.offset) < ($1.element.kind.rawValue, $1.offset) }.map(\.element)
+    }
+
+    /// What the installer put outside ~/Library, by exact path. Resolve's holds only its own parts, but its LUT folder
+    /// is also where people add their own LUTs, so this is never picked by default.
+    static func systemFolders(for app: InstalledApp) -> [URL] {
+        guard app.bundleID == "com.blackmagic-design.DaVinciResolve" else { return [] }
+        return [URL(fileURLWithPath: "/Library/Application Support/Blackmagic Design")]
     }
 
     /// Whether the app keeps a sandbox container. Only checks existence; reading it would ask the user for permission.
@@ -303,9 +315,9 @@ struct AppUninstaller: Sendable {
         app.bundleIDs.contains { FileManager.default.fileExists(atPath: library.appending(path: "Containers/\($0)").path) }
     }
 
-    /// Uninstalling means not wanting the app any more: everything it left goes, its own data included
-    /// (用户定，2026-10-25). It all lands in the Trash and can be put back.
-    static func pickedByDefault(_ trace: AppTrace) -> Bool { true }
+    /// Uninstalling means not wanting the app any more: what it left goes (用户定，2026-10-25), and all of it lands in
+    /// the Trash. Projects and drafts stay unless picked (用户定，2026-11-03): emptying the Trash would lose the work.
+    static func pickedByDefault(_ trace: AppTrace) -> Bool { ![.projects, .system].contains(trace.kind) }
 
     private func namespaced(in folder: String, id: String, suffix: String) -> [URL] {
         let directory = library.appending(path: folder)
@@ -331,7 +343,7 @@ struct AppUninstaller: Sendable {
         var traces: [AppTrace] = []
         for (url, kind) in candidates {
             let path = url.standardizedFileURL.path
-            guard kind == .app || isAllowedTrace(url), !traces.contains(where: { $0.url.path == path }) else { continue }
+            guard kind == .app || kind == .system || isAllowedTrace(url), !traces.contains(where: { $0.url.path == path }) else { continue }
             var info = stat()
             guard lstat(path, &info) == 0 else { continue }
             let type = info.st_mode & mode_t(S_IFMT)
@@ -471,7 +483,13 @@ struct AppUninstaller: Sendable {
     // MARK: Moving
 
     /// Re-checks one leftover and moves it to the Trash.
-    func moveTrace(_ trace: AppTrace) throws -> URL {
+    func moveTrace(_ trace: AppTrace, of app: InstalledApp? = nil) throws -> URL {
+        if trace.kind == .system {
+            guard let app, Self.systemFolders(for: app).contains(where: { $0.path == trace.url.path }) else { throw TrashError.notEligible }
+            guard TrashService.currentIdentity(trace.url) == trace.identity else { throw TrashError.changed }
+            // Root-owned: the system asks for the administrator password.
+            return try AppRecycle.authorizedTrash(trace.url, identity: trace.identity)
+        }
         guard trace.kind != .app, isAllowedTrace(trace.url) else { throw TrashError.notEligible }
         var info = stat()
         guard lstat(trace.url.path, &info) == 0,
@@ -558,13 +576,6 @@ final class UninstallStore: ObservableObject {
     }
 
     /// What a tool's own data is, in its own terms: a video editor keeps projects, not conversations.
-    func dataTitle(for app: InstalledApp) -> String {
-        switch tool(for: app)?.group {
-        case .video, .design: "项目和素材"
-        default: TraceKind.toolData.title
-        }
-    }
-
     func dataNote(for app: InstalledApp) -> String {
         tool(for: app)?.group.dataNote ?? "对话、模型和设置"
     }
@@ -761,7 +772,7 @@ final class UninstallStore: ObservableObject {
                     return
                 }
                 Task.detached(priority: .userInitiated) { [weak self] in
-                    let result = Self.move(leftovers, with: uninstaller)
+                    let result = Self.move(leftovers, of: app, with: uninstaller)
                     await MainActor.run {
                         guard let self else { return }
                         self.isWorking = false
@@ -842,13 +853,13 @@ final class UninstallStore: ObservableObject {
         }
     }
 
-    nonisolated private static func move(_ traces: [AppTrace], with uninstaller: AppUninstaller)
+    nonisolated private static func move(_ traces: [AppTrace], of app: InstalledApp? = nil, with uninstaller: AppUninstaller)
         -> (moved: [(original: URL, trashed: URL)], failures: [CleanupReport.Failure]) {
         var moved: [(original: URL, trashed: URL)] = []
         var failures: [CleanupReport.Failure] = []
         for trace in traces {
             do {
-                moved.append((trace.url, try uninstaller.moveTrace(trace)))
+                moved.append((trace.url, try uninstaller.moveTrace(trace, of: app)))
             } catch {
                 failures.append(CleanupReport.Failure(id: trace.url, name: trace.url.lastPathComponent, reason: TrashService.reason(for: error)))
             }
@@ -864,11 +875,12 @@ final class UninstallStore: ObservableObject {
         isWorking = true
         Task.detached(priority: .userInitiated) { [weak self] in
             var back = TrashService.putBack(entries)
-            if entries[0].original == appOriginal, !back[0], let identity = TrashService.currentIdentity(entries[0].trashed),
-               !FileManager.default.fileExists(atPath: entries[0].original.path) {
+            let home = FileManager.default.homeDirectoryForCurrentUser.path + "/"
+            for (index, entry) in entries.enumerated() where !back[index] && (entry.original == appOriginal || !entry.original.path.hasPrefix(home)) {
+                guard let identity = TrashService.currentIdentity(entry.trashed), !FileManager.default.fileExists(atPath: entry.original.path) else { continue }
                 do {
-                    try AppRecycle.authorizedMove(from: entries[0].trashed, to: entries[0].original, identity: identity)
-                    back[0] = true
+                    try AppRecycle.authorizedMove(from: entry.trashed, to: entry.original, identity: identity)
+                    back[index] = true
                 } catch { }
             }
             let restored = back.filter { $0 }.count
