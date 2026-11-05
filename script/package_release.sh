@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the downloadable release: ad-hoc signed (no personal certificate name inside),
+# Builds the downloadable release: signed with the shared fixed certificate (no personal name inside; permissions survive updates),
 # debug symbols stripped (they carry the build machine's paths), zipped for GitHub Releases.
 # Output: tmp/release/Qingo-<version>.zip
 set -euo pipefail
@@ -11,8 +11,7 @@ OUT=tmp/release
 rm -rf "$OUT" && mkdir -p "$OUT"
 ditto dist/小清.app "$OUT/小清.app"
 strip -S -x "$OUT/小清.app/Contents/MacOS/Qingo" 2>/dev/null
-codesign --force --sign - --identifier io.github.chenmozhe008.qingo "$OUT/小清.app"
-codesign --verify --strict "$OUT/小清.app"
+"$HOME/Coding/tools/mac-app-workflow/release-sign.sh" "$OUT/小清.app" io.github.chenmozhe008.qingo
 
 # Refuse to ship anything that names the build machine.
 if strings -a "$OUT/小清.app/Contents/MacOS/Qingo" | grep -E "/Users/|Coding Project" >/dev/null; then

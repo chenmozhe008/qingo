@@ -71,7 +71,7 @@ final class UpdateChecker: ObservableObject {
         var request = URLRequest(url: Self.latestAPI, timeoutInterval: 15)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let release: Release
-        if let (data, response) = try? await URLSession.shared.data(for: request),
+        if let (data, response) = try? await Self.apiData(request),
            (response as? HTTPURLResponse)?.statusCode ?? 200 == 200,
            let parsed = Self.parse(data) {
             release = parsed
@@ -88,6 +88,19 @@ final class UpdateChecker: ObservableObject {
         // `QINGO_AUTO_INSTALL=1` (tests only, with QINGO_UPDATE_FEED): install without the confirmation dialog.
         if ProcessInfo.processInfo.environment["QINGO_AUTO_INSTALL"] != nil, let available { install(available) }
         return release
+    }
+
+    /// 先按系统设置走，失败或被限流时直连再试一次：代理节点多人共用，GitHub 匿名额度经常用完
+    private nonisolated static func apiData(_ request: URLRequest) async throws -> (Data, URLResponse) {
+        var firstError: Error?
+        do {
+            let result = try await URLSession.shared.data(for: request)
+            guard let status = (result.1 as? HTTPURLResponse)?.statusCode, status != 200 else { return result }
+        } catch { firstError = error }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.connectionProxyDictionary = [:]
+        do { return try await URLSession(configuration: configuration).data(for: request) }
+        catch { throw firstError ?? error }
     }
 
     private nonisolated static func checkReleasePage() async -> Release? {
@@ -107,7 +120,9 @@ final class UpdateChecker: ObservableObject {
         let tag = parts[5]
         let version = tag.hasPrefix("v") ? String(tag.dropFirst()) : tag
         guard !version.isEmpty, version.split(separator: ".", omittingEmptySubsequences: false).allSatisfy({ !$0.isEmpty && $0.allSatisfy(\.isNumber) }) else { return nil }
-        return Release(version: version, page: url, asset: nil, digest: nil, notes: [])
+        // API 不通或被限流时只拿得到版本号；附件名固定，地址能直接拼出来，照样走一键更新
+        let asset = URL(string: "https://github.com/chenmozhe008/qingo/releases/download/\(tag)/Qingo-\(version).zip")
+        return Release(version: version, page: url, asset: asset, digest: nil, notes: [])
     }
 
     nonisolated static func parse(_ data: Data) -> Release? {
@@ -142,10 +157,16 @@ final class UpdateChecker: ObservableObject {
             } else {
                 let alert = NSAlert()
                 alert.messageText = release == nil ? "无法检查更新" : "小清已是最新版本"
-                alert.informativeText = release == nil ? "无法获取 GitHub 发布信息，可能是网络异常或请求次数受限，请稍后重试。" : "当前版本 \(AppInfo.version)。"
+                alert.informativeText = release == nil ? "连不上 GitHub：检查更新需要科学上网，请检查网络设置。" : "当前版本 \(AppInfo.version)。"
                 alert.runModal()
             }
         }
+    }
+
+    /// 更新按钮：点一下直接下载安装，有进度，完成后自动重新打开（和闪电全能下载一致）。没拿到安装包信息时重新查一次
+    func startUpdate() {
+        guard let available, phase == .idle else { return }
+        if available.asset != nil { install(available) } else { checkFromMenu() }
     }
 
     /// The top bar's 新版本 button.
@@ -184,23 +205,58 @@ final class UpdateChecker: ObservableObject {
                 }
                 phase = .installing
                 let app = try await Task.detached { try Self.prepare(zip, release: release) }.value
-                try Self.swapAndRelaunch(with: app)
-                NSApp.terminate(nil)
+                installPrepared(app)
             } catch {
+                let wasDownloading: Bool
+                if case .downloading = phase { wasDownloading = true } else { wasDownloading = false }
                 phase = .idle
                 let alert = NSAlert()
                 alert.messageText = "未能完成更新"
-                alert.informativeText = "\(error.localizedDescription)\n\n可以前往 GitHub 下载新版本，手动替换「应用程序」中的小清。"
-                alert.addButton(withTitle: "前往下载")
+                let hint = wasDownloading ? "更新包放在 GitHub 上，需要科学上网。请检查网络设置，或前往下载页面手动下载。" : "更新文件无法使用，请重新下载后重试。"
+                alert.informativeText = "\(error.localizedDescription)\n\n\(hint)"
+                alert.addButton(withTitle: "重试")
                 alert.addButton(withTitle: "取消")
-                if alert.runModal() == .alertFirstButtonReturn { NSWorkspace.shared.open(release.page) }
+                alert.addButton(withTitle: "前往下载页面")
+                let response = alert.runModal()
+                if response == .alertFirstButtonReturn { install(release) }
+                else if response == .alertThirdButtonReturn { NSWorkspace.shared.open(release.page) }
             }
+        }
+    }
+
+    /// 下载和校验完成后复用已解压的应用，安装失败不再让用户重复下载。
+    private func installPrepared(_ app: URL) {
+        do {
+            phase = .installing
+            try Self.swapAndRelaunch(with: app)
+            NSApp.terminate(nil)
+        } catch {
+            phase = .idle
+            let alert = NSAlert()
+            alert.messageText = "未能自动安装更新"
+            guard FileManager.default.fileExists(atPath: app.path) else {
+                alert.informativeText = error.localizedDescription
+                alert.addButton(withTitle: "好")
+                alert.runModal()
+                return
+            }
+            alert.informativeText = "\(error.localizedDescription)\n\n更新包已下载并校验。可以重试，或显示已下载的应用并手动替换；系统可能要求管理员授权。"
+            alert.addButton(withTitle: "重试安装")
+            alert.addButton(withTitle: "显示已下载的应用")
+            alert.addButton(withTitle: "取消")
+            let response = alert.runModal()
+            if response == .alertFirstButtonReturn { installPrepared(app) }
+            else if response == .alertSecondButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([app]) }
         }
     }
 
     struct UpdateError: LocalizedError {
         let errorDescription: String?
-        init(_ message: String) { errorDescription = message }
+        var permissionDenied = false
+        init(_ message: String, permissionDenied: Bool = false) {
+            errorDescription = message
+            self.permissionDenied = permissionDenied
+        }
     }
 
     private nonisolated static func download(_ url: URL, progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
@@ -236,24 +292,97 @@ final class UpdateChecker: ObservableObject {
 
     /// Moves the running app to the Trash (macOS allows this; the process keeps running), puts the new one in
     /// its place, and leaves a small script to open it once this process has quit. A failed move puts the old app back.
+    /// 没有写权限（标准账号、App 属于别的用户）时弹系统授权框，由管理员密码完成替换，不让用户手动替换。
     private static func swapAndRelaunch(with app: URL) throws {
-        let target = Bundle.main.bundleURL
-        guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
-            throw UpdateError("没有权限替换「\(target.deletingLastPathComponent().path)」中的小清。")
+        let target = installTarget(for: Bundle.main.bundleURL)
+        let relaunch = {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; open \"$2\"",
+                                 "qingo-update", String(getpid()), target.path]
+            try process.run()
         }
-        var trashed: NSURL?
-        try FileManager.default.trashItem(at: target, resultingItemURL: &trashed)
+        let backupOld: () throws -> URL? = {
+            guard FileManager.default.fileExists(atPath: target.path) else { return nil }
+            var trashed: NSURL?
+            try FileManager.default.trashItem(at: target, resultingItemURL: &trashed)
+            guard let backup = trashed as URL? else {
+                throw UpdateError("旧版已移入废纸篓，但无法确定其位置；请从废纸篓恢复旧版。")
+            }
+            return backup
+        }
+        do {
+            guard FileManager.default.isWritableFile(atPath: target.deletingLastPathComponent().path) else {
+                throw UpdateError("没有权限写入「\(target.deletingLastPathComponent().path)」。", permissionDenied: true)
+            }
+            try replaceApp(at: target, with: app, backup: backupOld, scheduleRelaunch: relaunch)
+        } catch where isPermissionDenied(error) {
+            try replaceAsAdministrator(target: target, with: app)
+            try relaunch()
+        }
+    }
+
+    /// 从「下载」等位置直接运行时系统把 App 放在只读的临时路径（App Translocation），替换不了也留不住，改装进「应用程序」。
+    nonisolated static func installTarget(for bundle: URL) -> URL {
+        guard bundle.path.contains("/AppTranslocation/") else { return bundle }
+        return URL(fileURLWithPath: "/Applications", isDirectory: true).appendingPathComponent(bundle.lastPathComponent)
+    }
+
+    nonisolated static func isPermissionDenied(_ error: Error) -> Bool {
+        if let error = error as? UpdateError { return error.permissionDenied }
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain { return [NSFileWriteNoPermissionError, NSFileReadNoPermissionError].contains(ns.code) }
+        return ns.domain == NSPOSIXErrorDomain && [Int(EPERM), Int(EACCES)].contains(ns.code)
+    }
+
+    /// 旧版移进废纸篓再放新版，放不进去就把旧版放回；路径单独加引号，可含空格、中文和单引号。
+    nonisolated static func replaceCommand(target: URL, app: URL, backup: URL) -> String {
+        let quote = { (path: String) in "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'" }
+        let (t, a, b) = (quote(target.path), quote(app.path), quote(backup.path))
+        return "if [ -e \(t) ]; then mv \(t) \(b) || exit 1; fi; mv \(a) \(t) || { [ -e \(b) ] && mv \(b) \(t); exit 1; }"
+    }
+
+    private static func replaceAsAdministrator(target: URL, with app: URL) throws {
+        let backup = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".Trash", isDirectory: true)
+            .appendingPathComponent("小清-旧版-\(AppInfo.version)-\(UUID().uuidString.prefix(8)).app")
+        let escape = { (text: String) in text.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") }
+        let command = replaceCommand(target: target, app: app, backup: backup)
+        let source = "do shell script \"\(escape(command))\" with prompt \"\(escape("小清需要授权才能安装新版本。"))\" with administrator privileges"
+        var failure: NSDictionary?
+        NSAppleScript(source: source)?.executeAndReturnError(&failure)
+        guard let failure else { return }
+        if failure[NSAppleScript.errorNumber] as? Int == -128 { throw UpdateError("已取消授权，小清没有更改。") }
+        let reason = failure[NSAppleScript.errorMessage] as? String ?? "未知错误"
+        throw UpdateError("授权安装失败：\(reason)")
+    }
+
+    /// 把备份和启动操作作为参数，以便在独立临时目录验证失败回滚。
+    nonisolated static func replaceApp(at target: URL, with app: URL, backup: () throws -> URL?,
+                                       scheduleRelaunch: () throws -> Void) throws {
+        let backup = try backup()
         do {
             try FileManager.default.moveItem(at: app, to: target)
         } catch {
-            if let trashed = trashed as URL? { try? FileManager.default.moveItem(at: trashed, to: target) }
-            throw UpdateError("无法替换小清：\(error.localizedDescription)")
+            let failure = error.localizedDescription
+            let denied = isPermissionDenied(error)
+            if let backup {
+                do { try FileManager.default.moveItem(at: backup, to: target) }
+                catch { throw UpdateError("无法替换应用，且自动恢复旧版失败。请从废纸篓恢复旧版。") }
+            }
+            throw UpdateError("无法替换小清，旧版已恢复：\(failure)", permissionDenied: denied)
         }
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "while kill -0 \"$1\" 2>/dev/null; do sleep 0.2; done; open \"$2\"",
-                             "qingo-update", String(getpid()), target.path]
-        try process.run()
+        do {
+            try scheduleRelaunch()
+        } catch {
+            // 重新启动助手未能启动时，恢复旧版；别报告失败却留下已替换的应用。
+            do {
+                try FileManager.default.moveItem(at: target, to: app)
+                if let backup { try FileManager.default.moveItem(at: backup, to: target) }
+            } catch {
+                throw UpdateError("无法启动更新后的应用，且恢复旧版失败；请检查废纸篓中的旧版和更新文件。")
+            }
+            throw UpdateError("无法启动更新后的应用，旧版已恢复。")
+        }
     }
 
     private nonisolated static func run(_ tool: String, _ arguments: [String]) -> Bool {

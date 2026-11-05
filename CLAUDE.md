@@ -101,7 +101,7 @@
   - 把用户之前每一轮的反馈当验收清单逐条对一遍再交付
 - **开发版与正式版（2026-11-03 用户定，照闪电全能下载，共用约定见 `~/Coding/tools/mac-app-workflow/README.md`）**：本机一直用最新开发版（`./script/build_and_run.sh --install-dev`，关于页标「开发版」），**用户说提交才推 GitHub 并上传安装包**。`build_and_run.sh` 默认打开发包（`QGDevBuild=1`）；`package_release.sh` 走 `QINGO_RELEASE_BUILD=1`，要求工作区干净、`v<版本>` 标签指向当前提交，所以先提交、打标签，再打包
 - **版本号（2026-10-27 用户定：「别的工具每一版都有编号，不能每次都用一个」）**：每次装到用户电脑或发布，都先升版本号（`script/build_and_run.sh` 的 `APP_VERSION`）。修问题、改文字升第三位（1.9.1 → 1.9.2），加功能升第二位（1.9 → 1.10）；CHANGELOG 每个版本单独一节；每个发布版打 `v<版本>` 标签、单独一个 GitHub Release，已发布的版本不改。宣传视频等交付物也按 v1、v2 另存，不覆盖
-- **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，临时签名（证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases（`gh release create v<版本> … --latest`，说明照上一版的格式：简介 / 下载安装 / 本版更新内容；中间没单独发布的版本，改动并进这一版）。「无法验证开发者」提示去不掉（2026-10-29 用户问过）：要 Apple Developer ID 签名＋公证（开发者账号 99 美元/年），没办就只能在 README 和 Release 里写「隐私与安全性 → 仍要打开」或终端 `xattr -dr com.apple.quarantine /Applications/小清.app`。**2026-10-29 用户定：先不花钱，不办**；以后要办：用户 iPhone「Apple Developer」App 实名申请个人账号 → 生成 Developer ID Application 证书＋App 专用密码 → 改 `package_release.sh`：Developer ID 签名＋hardened runtime → `notarytool submit --wait` → `stapler staple`（本机 notarytool/stapler 在移动硬盘的 Xcode-26.5 里）。代价：证书名是实名，会公开在签名里。换图标后 Dock 还显示旧图：`lsregister -f` 这个 App 再 `killall Dock`
+- **发布**：`./script/package_release.sh` → `tmp/release/Qingo-<版本>.zip`，固定自签名（开发证书名里有个人邮箱，不能用）＋ strip 调试符号（里面有本机路径），脚本发现 `/Users/` 会拒绝打包；上传 GitHub Releases（`gh release create v<版本> … --latest`，说明照上一版的格式：简介 / 下载安装 / 本版更新内容；中间没单独发布的版本，改动并进这一版）。「无法验证开发者」提示去不掉（2026-10-29 用户问过）：要 Apple Developer ID 签名＋公证（开发者账号 99 美元/年），没办就只能在 README 和 Release 里写「隐私与安全性 → 仍要打开」或终端 `xattr -dr com.apple.quarantine /Applications/小清.app`。**2026-10-29 用户定：先不花钱，不办**；以后要办：用户 iPhone「Apple Developer」App 实名申请个人账号 → 生成 Developer ID Application 证书＋App 专用密码 → 改 `package_release.sh`：Developer ID 签名＋hardened runtime → `notarytool submit --wait` → `stapler staple`（本机 notarytool/stapler 在移动硬盘的 Xcode-26.5 里）。代价：证书名是实名，会公开在签名里。换图标后 Dock 还显示旧图：`lsregister -f` 这个 App 再 `killall Dock`
 - 关于页下方内容（对比表）滚不到：临时把 `comparisonTable` 挪到 intro 顶部截图，截完还原
 
 ## 图标
@@ -196,10 +196,10 @@
 ## 检查更新（2026-10-29 用户定：「肯定要做，改承诺就行」）
 
 - 小清唯一联网的地方：`UpdateChecker` 每天最多一次读 GitHub `releases/latest` 的版本号（`updateLastCheck` 记时间，一天内用缓存的结果），不上传任何东西。README 的承诺已改成「仅在检查更新时访问 GitHub（每天最多一次，可关闭）」，**别再写「不联网」**
-- 有新版：顶栏最右边一个 tinted 按钮「新版本 X」→ 弹窗列出 Release「更新内容」的条目 →「更新并重新打开」。**不放侧栏**：试过放「关于」上方，最小窗口把「大文件」挤掉一半（左栏高度规则）
+- 有新版：顶栏最右边一个 tinted 按钮「新版本 X」→ 点一下直接下载安装并重新打开（11-05 和闪电统一，不再弹确认框；清理中按钮不可用）。**不放侧栏**：试过放「关于」上方，最小窗口把「大文件」挤掉一半（左栏高度规则）
 - **一键更新（10-29 用户：「跳到 GitHub 再下载不太好，直接进度条、完了就安装」）**：下载 Release 里 `Qingo-*.zip`（按钮变进度条）→ 对 GitHub 资产的 `digest`（sha256）→ `ditto -x -k` 解压 → 核对 bundle id、版本号、`codesign --verify --deep --strict` → 去 quarantine → `trashItem` 把**正在运行的**自己移到废纸篓（系统允许）→ 新版移到原位置 → 起一个 sh 等本进程退出后 `open` → `NSApp.terminate`。替换失败把旧版挪回去；任何一步失败弹窗给「前往下载」兜底。App 自己下载的文件不带 quarantine，所以 Gatekeeper 不拦
 - **发版附件名必须是 `Qingo-<版本>.zip`、tag 必须是 `v<版本>`**，否则一键更新找不到包 / 比较不出版本
-- 已知：发布版是临时签名，每个版本 cdhash 不同，**更新后「完全磁盘访问」要重新开**（手动替换也一样；只有 Developer ID 签名能解决）
+- 发布包用共用的固定自签名（`tools/mac-app-workflow/release-sign.sh`，11-05 起），「完全磁盘访问」更新后不用重开；从临时签名的旧版升上来要再开一次
 - 端到端测试（10-29 跑通）：打一份旧版本号的包放项目 `tmp/`，`package_release.sh` 打新版 zip，写一个假的 releases/latest JSON（资产地址用 file://，路径有空格要编码），`open -n -g --env QINGO_UPDATE_FEED=<file:// JSON> --env QINGO_AUTO_INSTALL=1 <旧版.app>`（AUTO_INSTALL 跳过确认弹窗，只给测试用）；测完删 `updateLatestRelease`/`updateLastCheck` 两个 defaults。**旧版副本用开发证书签名**（别 `CODESIGN_IDENTITY=-`）：临时签名的副本在本机跑会被当成新 App，反复弹权限框（10-29 闪电全能下载踩过）；测完立刻关掉、`lsregister -u` 注销、移到废纸篓
 - 菜单「小清 › 检查更新…」（有新版走同一个更新弹窗）、「自动检查更新」开关（默认开）
 - 版本比较按数字逐段（1.10 > 1.9），开发版不提示；**发 Release 时 tag 必须是 `v<版本>`**，否则比较不出来

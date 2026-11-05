@@ -107,7 +107,7 @@ struct UpdateFeedTests {
         let url = try #require(URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/v1.15.2"))
         let release = try #require(UpdateChecker.releaseFromPage(url))
         #expect(release.version == "1.15.2")
-        #expect(release.asset == nil)
+        #expect(release.asset?.absoluteString == "https://github.com/chenmozhe008/qingo/releases/download/v1.15.2/Qingo-1.15.2.zip")
         #expect(UpdateChecker.releaseFromPage(URL(string: "https://example.com/chenmozhe008/qingo/releases/tag/v1.15.2")!) == nil)
         #expect(UpdateChecker.releaseFromPage(URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/not-a-version")!) == nil)
     }

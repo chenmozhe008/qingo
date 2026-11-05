@@ -749,7 +749,7 @@ struct MainView: View {
                 .buttonStyle(ToolbarButtonStyle(prominent: stale, large: true, tinted: !stale))
                 .help("重新扫描「\(store.scopeTitle)」（⌘R）")
             Spacer()
-            UpdateButton(checker: store.updates)
+            UpdateButton(checker: store.updates, busy: store.isCleaning)
         }
         .disabled(store.isCleaning)
         .padding(.leading, showSidebar ? 22 : 22)
@@ -2326,6 +2326,7 @@ final class HoverTracker: ObservableObject {
 /// Not in the sidebar: its height is budgeted so every category fits the smallest window.
 struct UpdateButton: View {
     @ObservedObject var checker: UpdateChecker
+    var busy = false   // 清理进行中不更新，免得中途退出
 
     var body: some View {
         switch checker.phase {
@@ -2341,11 +2342,12 @@ struct UpdateButton: View {
             }
         case .idle:
             if let release = checker.available {
-                Button { checker.offerAvailable() } label: {
+                Button { checker.startUpdate() } label: {
                     Label("新版本 \(release.version)", systemImage: "arrow.down.circle.fill").lineLimit(1)
                 }
                 .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
-                .help("更新到 \(release.version)，完成后自动重新打开")
+                .help("更新到 \(release.version)：自动下载安装并重新打开")
+                .disabled(busy)
                 .layoutPriority(1)
             }
         }
