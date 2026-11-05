@@ -174,7 +174,7 @@
 
 - 取代作者本机原来的 shell 定时监测（一天一次、点通知只会打开脚本编辑器）。那个任务已停用，恢复方法记在作者本地，不进仓库
 - 检查间隔 30 分钟（2026-10-29 用户同意）：检查只读一次剩余空间、几毫秒，间隔只影响多快发现；打扰次数由下面的去重规则管，别为了「少打扰」把间隔拉长
-- 结构（`SpaceAlert.swift`）：包内后台任务 `Contents/Library/LaunchAgents/io.github.chenmozhe008.qingo.space-check.plist`（打包脚本生成，`BundleProgram` 指向本包），由 `SMAppService.agent` 注册；每 30 分钟和登录时跑 `Qingo --check-space`：不起界面，读 `volumeAvailableCapacityForImportantUsage`，发完通知就退出（`QingoApp.init` 里最先判断，早于迁移和界面）
+- 结构（`SpaceAlert.swift`）：用户级后台任务 `~/Library/LaunchAgents/io.github.chenmozhe008.qingo.space-check.plist`，App 启动时写入并加载（`installLaunchAgent`），App 不在了任务自己清除；每 30 分钟和登录时跑 `Qingo --check-space`：不起界面，读 `volumeAvailableCapacityForImportantUsage`，发完通知就退出（`QingoApp.init` 里最先判断，早于迁移和界面）
 - 阈值就是 `MainView.lowSpaceBytes`（10 GB），**不另设可调阈值**，界面变琥珀和发通知同一个口径
 - 什么时候提醒（`SpaceAlert.shouldWarn`）：刚低于阈值提醒一次；之后满 24 小时、或又少了 5 GB 再提醒；回到阈值 +1 GB 以上算恢复，下次低了重新提醒。通知 id 固定，通知中心里不会堆一串
 - 文案：标题「剩余空间较少」（用户定过别说「空间不足」），正文「可用 X。点按以开始快速扫描。」

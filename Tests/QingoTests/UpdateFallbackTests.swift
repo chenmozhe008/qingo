@@ -3,13 +3,35 @@ import Testing
 @testable import Qingo
 
 struct UpdateFallbackTests {
-    @Test func spaceAlertAgentRunsThisAppWithoutSMAppService() {
-        let plist = SpaceAlert.agentPlist(executable: "/Applications/小清.app/Contents/MacOS/Qingo")
-        #expect(plist["ProgramArguments"] as? [String] == ["/Applications/小清.app/Contents/MacOS/Qingo", "--check-space"])
+    @Test func spaceAlertAgentRunsThisAppAndCleansUpWhenItIsGone() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("小清 agent's test-\(UUID())")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let plistFile = folder.appendingPathComponent("agent.plist")
+        let plist = SpaceAlert.agentPlist(executable: "/Applications/小清.app/Contents/MacOS/Qingo", file: plistFile.path)
         #expect(plist["BundleProgram"] == nil)
         #expect(plist["StartInterval"] as? Int == 1800)
-    }
 
+        func run(_ executable: URL) throws -> String {
+            let output = folder.appendingPathComponent("ran.txt")
+            try? FileManager.default.removeItem(at: output)
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/sh")
+            process.arguments = ["-c", SpaceAlert.agentScript, "test", executable.path, plistFile.path, "io.github.chenmozhe008.qingo.not-a-real-test-job"]
+            process.environment = ["PATH": "/usr/bin:/bin", "OUT": output.path]
+            try process.run(); process.waitUntilExit()
+            return (try? String(contentsOf: output, encoding: .utf8)) ?? ""
+        }
+        try Data("x".utf8).write(to: plistFile)
+        let app = folder.appendingPathComponent("fake app")
+        try Data("#!/bin/sh\necho \"$1\" > \"$OUT\"\n".utf8).write(to: app)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: app.path)
+        #expect(try run(app).contains("--check-space"))
+        #expect(FileManager.default.fileExists(atPath: plistFile.path))
+        try FileManager.default.removeItem(at: app)
+        #expect(try run(app).isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: plistFile.path))
+    }
 
     @Test func pageFallbackStillGivesOneClickAsset() {
         let page = URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/v1.16.3")!

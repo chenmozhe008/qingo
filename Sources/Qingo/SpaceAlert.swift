@@ -96,9 +96,13 @@ enum SpaceAlert {
         FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/LaunchAgents/\(agentLabel).plist")
     }
 
+    /// App 不在了（已卸载）就把任务自己清掉，不留残余
+    nonisolated static let agentScript = #"[ -x "$1" ] && exec "$1" --check-space; rm -f "$2"; launchctl bootout "gui/$(id -u)/$3""#
+
     /// 路径指向当前这份 App；App 被挪动或内容变了就重写并重新加载
-    nonisolated static func agentPlist(executable: String) -> [String: Any] {
-        ["Label": "io.github.chenmozhe008.qingo.space-check", "ProgramArguments": [executable, "--check-space"],
+    nonisolated static func agentPlist(executable: String, file: String) -> [String: Any] {
+        ["Label": "io.github.chenmozhe008.qingo.space-check",
+         "ProgramArguments": ["/bin/sh", "-c", agentScript, "qingo-space-check", executable, file, "io.github.chenmozhe008.qingo.space-check"],
          "RunAtLoad": true, "StartInterval": 1800, "ProcessType": "Background",
          "AssociatedBundleIdentifiers": "io.github.chenmozhe008.qingo"]
     }
@@ -116,7 +120,7 @@ enum SpaceAlert {
 
     private static func installLaunchAgent() {
         guard let executable = Bundle.main.executablePath,
-              let data = try? PropertyListSerialization.data(fromPropertyList: agentPlist(executable: executable), format: .xml, options: 0) else { return }
+              let data = try? PropertyListSerialization.data(fromPropertyList: agentPlist(executable: executable, file: agentFile.path), format: .xml, options: 0) else { return }
         let domain = "gui/\(getuid())"
         let loaded = launchctl(["print", "\(domain)/\(agentLabel)"])
         if loaded, (try? Data(contentsOf: agentFile)) == data { return }
