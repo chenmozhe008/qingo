@@ -6,7 +6,7 @@ APP_NAME="小清"
 EXECUTABLE_NAME="Qingo"
 BUNDLE_ID="io.github.chenmozhe008.qingo"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="1.16.4"
+APP_VERSION="1.16.5"
 # 默认生成开发版；正式包必须明确指定，并从版本标签对应的干净源码构建。
 DEV_BUILD=1
 if [[ "${QINGO_RELEASE_BUILD:-0}" == "1" ]]; then
