@@ -180,6 +180,7 @@
 - 文案：标题「剩余空间较少」（用户定过别说「空间不足」），正文「可用 X。点按以开始快速扫描。」
 - 点通知：`AppDelegate` 收到 → `ScanStore.quickScanFromAlert()`（关掉工具页和关于，开始快速扫描；正在扫描或清理就只把窗口叫到前面）。App 还没建好 store 时先记 `SpaceAlert.openPending`
 - 开关：菜单「小清 › 剩余空间较少时提醒」，默认开；首次启动会弹系统通知授权。用户手动打开时如果通知被拒，跳系统设置的通知页。演示模式（`QINGO_HOME`）不注册、不弹授权
+- **后台任务不许用 `SMAppService`（2026-11-05 实测）**：它启动时要求 Apple 开发者身份，临时签名和自签名都会被系统杀掉（`Launch Constraint Violation`，还会弹「意外退出」），开发证书下测不出来。改用 `~/Library/LaunchAgents` 的普通任务；包里旧 plist 只留给老用户注销旧注册。验证要用发布签名，看 `launchctl print` 的 last exit code
 - **实测（2026-10-29）**：App 必须在 `/Applications` 或 `~/Applications` 这类正常位置，放在项目 `tmp/` 里系统直接拒通知权限；开发证书签名下通知、注册、点击回调都通。验证后台任务：`launchctl print gui/$(id -u)/io.github.chenmozhe008.qingo.space-check`；验证通知：`QINGO_PRETEND_FREE=8000000000 ~/Applications/小清.app/Contents/MacOS/Qingo --check-space`（假装只剩 8 GB；发过一次后 24 小时内不再发，重测先 `defaults delete io.github.chenmozhe008.qingo spaceAlertLastDate`）。这个模式会打印通知授权状态：`authorization: 1` 是被拒（通知发了但不显示，10-29 测试时就是授权框被点了「不允许」），去系统设置 › 通知 › 小清打开
 
 ## 空间变化报告（2026-10-29 用户看效果图 `output/mockups/r-growth/` 后定：A 卡片 + 点进去是 B 的完整页）

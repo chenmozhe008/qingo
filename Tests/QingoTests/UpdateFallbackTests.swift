@@ -3,6 +3,14 @@ import Testing
 @testable import Qingo
 
 struct UpdateFallbackTests {
+    @Test func spaceAlertAgentRunsThisAppWithoutSMAppService() {
+        let plist = SpaceAlert.agentPlist(executable: "/Applications/小清.app/Contents/MacOS/Qingo")
+        #expect(plist["ProgramArguments"] as? [String] == ["/Applications/小清.app/Contents/MacOS/Qingo", "--check-space"])
+        #expect(plist["BundleProgram"] == nil)
+        #expect(plist["StartInterval"] as? Int == 1800)
+    }
+
+
     @Test func pageFallbackStillGivesOneClickAsset() {
         let page = URL(string: "https://github.com/chenmozhe008/qingo/releases/tag/v1.16.3")!
         #expect(UpdateChecker.releaseFromPage(page)?.asset?.absoluteString == "https://github.com/chenmozhe008/qingo/releases/download/v1.16.3/Qingo-1.16.3.zip")

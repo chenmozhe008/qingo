@@ -2,7 +2,7 @@ import AppKit
 import ServiceManagement
 import UserNotifications
 
-/// Warns when free space runs low, even while Qingo is closed: a launch agent inside the bundle runs
+/// Warns when free space runs low, even while Qingo is closed: a user launch agent (~/Library/LaunchAgents) runs
 /// `Qingo --check-space` every 30 minutes; clicking the notification opens Qingo and starts a quick scan.
 enum SpaceAlert {
     static let checkArgument = "--check-space"
@@ -89,18 +89,61 @@ enum SpaceAlert {
         return "可用 \(freeText)。点按以开始快速扫描。"
     }
 
+    // MARK: 普通用户级 LaunchAgent
+
+    private static let agentLabel = "io.github.chenmozhe008.qingo.space-check"
+    private static var agentFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appending(path: "Library/LaunchAgents/\(agentLabel).plist")
+    }
+
+    /// 路径指向当前这份 App；App 被挪动或内容变了就重写并重新加载
+    nonisolated static func agentPlist(executable: String) -> [String: Any] {
+        ["Label": "io.github.chenmozhe008.qingo.space-check", "ProgramArguments": [executable, "--check-space"],
+         "RunAtLoad": true, "StartInterval": 1800, "ProcessType": "Background",
+         "AssociatedBundleIdentifiers": "io.github.chenmozhe008.qingo"]
+    }
+
+    private static func launchctl(_ arguments: [String]) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        guard (try? process.run()) != nil else { return false }
+        process.waitUntilExit()
+        return process.terminationStatus == 0
+    }
+
+    private static func installLaunchAgent() {
+        guard let executable = Bundle.main.executablePath,
+              let data = try? PropertyListSerialization.data(fromPropertyList: agentPlist(executable: executable), format: .xml, options: 0) else { return }
+        let domain = "gui/\(getuid())"
+        let loaded = launchctl(["print", "\(domain)/\(agentLabel)"])
+        if loaded, (try? Data(contentsOf: agentFile)) == data { return }
+        if loaded { _ = launchctl(["bootout", "\(domain)/\(agentLabel)"]) }
+        try? FileManager.default.createDirectory(at: agentFile.deletingLastPathComponent(), withIntermediateDirectories: true)
+        guard (try? data.write(to: agentFile, options: .atomic)) != nil else { return }
+        _ = launchctl(["bootstrap", domain, agentFile.path])
+    }
+
+    private static func removeLaunchAgent() {
+        _ = launchctl(["bootout", "gui/\(getuid())/\(agentLabel)"])
+        try? FileManager.default.removeItem(at: agentFile)
+    }
+
     // MARK: App side
 
     /// Keeps the launch agent in step with the setting. `userInitiated`: the menu toggle was just turned on,
     /// so a refused notification permission opens System Settings instead of failing silently.
     @MainActor static func sync(userInitiated: Bool = false) {
         if AppHome.isDemo || !inAppBundle { return }
-        let service = agent
+        // 旧版用 SMAppService 注册的任务要求 App 有 Apple 开发者身份，发布包没有，一启动就被系统杀掉（Launch Constraint Violation）
+        if agent.status != .notRegistered { try? agent.unregister() }
         guard isEnabled else {
-            if service.status != .notRegistered { try? service.unregister() }
+            removeLaunchAgent()
             return
         }
-        if service.status != .enabled { try? service.register() }
+        installLaunchAgent()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { granted, _ in
             guard !granted, userInitiated else { return }
             Task { @MainActor in
