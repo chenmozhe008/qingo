@@ -121,6 +121,10 @@ enum ItemPresentation {
 
     private static func resolve(_ item: ScanItem) -> Info {
         let name = item.name
+        if let browser = Leftovers.browser(of: item.url) {
+            return Info(title: "\(browser.name) 旧版本副本", icon: appIcon(bundleID: browser.bundleID), symbol: "globe")
+        }
+        if item.url == Leftovers.clangCache { return Info(title: "Clang 编译缓存", icon: nil, symbol: "hammer.fill") }
         if let app = CreativeApp.of(item) {
             return Info(title: "\(app.title) \(partTitle(for: item))", icon: appIcon(bundleID: app.bundleID), symbol: app.group.symbol)
         }

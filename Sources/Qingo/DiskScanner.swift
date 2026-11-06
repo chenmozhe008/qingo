@@ -28,7 +28,8 @@ struct DiskScanner: Sendable {
         var scanned = 0
         let rootDevice = try identity(root).device
         onProgress(ScanProgress(scannedCount: 0, currentFolder: root.path))
-        let total = try walk(root, root: root, rootDevice: rootDevice, depth: 0, insideProject: false, items: &items, skipped: &skipped, scanned: &scanned, onProgress: onProgress)
+        var total = try walk(root, root: root, rootDevice: rootDevice, depth: 0, insideProject: false, items: &items, skipped: &skipped, scanned: &scanned, onProgress: onProgress)
+        if root == policy.home { total = addLeftovers(&items, total: total) }
         items.sort { $0.bytes > $1.bytes }
         let filesystem = try? FileManager.default.attributesOfFileSystem(forPath: root.path)
         let volumeTotal = (filesystem?[.systemSize] as? NSNumber)?.int64Value
@@ -53,6 +54,7 @@ struct DiskScanner: Sendable {
             let addition = total.addingReportingOverflow(bytes)
             total = addition.overflow ? Int64.max : addition.partialValue
         }
+        total = addLeftovers(&items, total: total)
         items.sort { $0.bytes > $1.bytes }
         let filesystem = try? FileManager.default.attributesOfFileSystem(forPath: root.path)
         var result = ScanResult(root: root, isQuickScan: true, items: items, totalBytes: total,
@@ -61,6 +63,20 @@ struct DiskScanner: Sendable {
                                 skippedCount: skipped, scannedCount: scanned, scannedAt: Date())
         result.availableBytes = Self.available(root)
         return result
+    }
+
+    /// 个人文件夹外的残留（浏览器旧版签名副本、Clang 编译缓存），见 `Leftovers`
+    private func addLeftovers(_ items: inout [ScanItem], total: Int64) -> Int64 {
+        var sum = total
+        // 系统临时目录属于当前用户：只在扫这个用户自己的个人文件夹时带上（测试、演示用的是别的文件夹）
+        guard policy.home == CanonicalPath.url(FileManager.default.homeDirectoryForCurrentUser) else { return sum }
+        for found in Leftovers.find() where !items.contains(where: { $0.url == found.url }) {
+            guard let meta = try? metadata(found.url) else { continue }
+            emit(&items, item(found.url, kind: .cache, bytes: found.bytes, note: found.note, canTrash: true, identity: meta.identity, modified: meta.modified))
+            let addition = sum.addingReportingOverflow(found.bytes)
+            sum = addition.overflow ? Int64.max : addition.partialValue
+        }
+        return sum
     }
 
     static func available(_ url: URL) -> Int64? {

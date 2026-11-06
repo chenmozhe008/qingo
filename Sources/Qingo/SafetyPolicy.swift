@@ -111,6 +111,7 @@ struct SafetyPolicy: Sendable {
 
     func cacheDescription(for url: URL, isDirectory: Bool) -> String? {
         guard isDirectory, !isProtected(url) else { return nil }
+        if let note = Leftovers.note(for: url) { return note }
         if let note = chatCacheNotes[CanonicalPath.url(url).path] { return note }
         if let note = CreativeApp.cacheNote(url, home: home) { return note }
         guard !isProject(url), CreativeApp.dataOwner(url, home: home) == nil else { return nil }

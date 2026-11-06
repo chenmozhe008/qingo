@@ -84,6 +84,7 @@
 - 微信超过 2 GB 时分类卡数字变琥珀；不单独出微信提醒条
 - 列表同名项（如几百个 __pycache__）合并成一行「N 处」，点行全选、⌄ 展开
 - 磁盘剩余 < 10 GB（`MainView.lowSpaceBytes`）才变琥珀并提示「剩余空间较少」；10 GB 以上不提示（用户明确：别说「空间不足」，别按百分比判断）
+- **个人文件夹外的残留（`Leftovers`，2026-11-06，用户：「清理空间的能力太弱」，方案见 `docs/清理能力改进方案-2026-11.md`）**：Chromium 系浏览器签名副本（系统临时目录 `X/<id>.code_sign_clone/code_sign_clone.XXXXXX`，浏览器开着时只放行早于最早运行实例 60 秒以上的）和 Clang 编译缓存（`C/clang/ModuleCache`，`sourcekit-lsp`/`clang`/`swift-frontend` 等在跑就不列）。判据照 Mole。**大小按 APFS 实际可腾出算**：同版本副本只算一份平摊、与已装版本相同的算 0（按文件大小加总，作者本机虚报成 12.8 GB，实际约 3 GB）。只在扫当前用户自己的个人文件夹时加入（测试、演示不带）。`LeftoversTests` 的端到端用例默认跳过，`QINGO_LIVE_LEFTOVERS=1 ./script/test.sh` 才真移一份进废纸篓再放回
 - 门槛：工程/应用数据 < 200 MB、「需要判断」< 50 MB 不列；嵌套 node_modules 只列最外层；扫描页「边扫边发现」只显示 ≥ 5 MB
 
 ## 验证方法（不抢用户鼠标）
