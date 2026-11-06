@@ -61,3 +61,49 @@ struct SafetyFoundationTests {
         #expect(policy.cacheDescription(for: home.appending(path: "Library/Caches/keys"), isDirectory: true) == nil)
     }
 }
+
+/// 第三块：iOS 固件进一键清理、iPhone 备份要确认、已装 App 的安装包写明「已安装」
+struct IOSDataTests {
+    private func home() throws -> URL {
+        let home = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
+        return CanonicalPath.url(home)
+    }
+
+    @Test func firmwareIsCleanableAndBackupNeedsConfirmation() throws {
+        let home = try home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let firmware = home.appending(path: "Library/iTunes/iPhone Software Updates")
+        try FileManager.default.createDirectory(at: firmware, withIntermediateDirectories: true)
+        let backup = home.appending(path: "Library/Application Support/MobileSync/Backup/00008110-001A2B3C4D5E")
+        try FileManager.default.createDirectory(at: backup, withIntermediateDirectories: true)
+        let info: NSDictionary = ["Device Name": "小明的 iPhone", "Last Backup Date": Date(timeIntervalSince1970: 1_700_000_000)]
+        info.write(to: backup.appending(path: "Info.plist"), atomically: true)
+        let policy = SafetyPolicy(home: home)
+        #expect(policy.cacheDescription(for: firmware, isDirectory: true) != nil)
+        #expect(policy.quickScanLocations.contains { CanonicalPath.url($0) == CanonicalPath.url(firmware) })
+        // A backup is never a one-click cache; it is a decision with its device named.
+        #expect(policy.cacheDescription(for: backup, isDirectory: true) == nil)
+        #expect(policy.reviewDescription(for: backup, isDirectory: true)?.contains("小明的 iPhone") == true)
+        let item = ScanItem(id: backup, url: backup, kind: .review, risk: .c, bytes: 1, note: "", canTrash: false,
+                            identity: FileIdentity(device: 1, inode: 1))
+        #expect(policy.decisionNote(for: item) != nil)
+        #expect(ItemFilter.large.contains(item))
+        // A folder next to the backups without Info.plist is not a backup.
+        let stray = home.appending(path: "Library/Application Support/MobileSync/Backup/stray")
+        try FileManager.default.createDirectory(at: stray, withIntermediateDirectories: true)
+        #expect(policy.iosBackup(stray) == nil)
+    }
+}
+
+struct InstallerMatchTests {
+    @Test func namesMatchInstalledAppsOnlyByWholeWords() throws {
+        func match(_ name: String) -> String? { InstallerMatch.installedApp(for: URL(fileURLWithPath: "/tmp/\(name)")) }
+        let installed = (try? FileManager.default.contentsOfDirectory(atPath: "/Applications")) ?? []
+        #expect(match("notion-calendar-1.2.dmg") != "Notion")
+        #expect(match("random-tool-3.0.dmg") == nil)
+        if installed.contains("WeChat.app") { #expect(match("WeChatMac_4.0.6.dmg") == "WeChat") }
+        if installed.contains("Google Chrome.app") { #expect(match("googlechrome.dmg") == "Google Chrome") }
+        if installed.contains("Keka.app") { #expect(match("Keka-1.4.dmg") == "Keka") }
+    }
+}

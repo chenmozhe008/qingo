@@ -74,8 +74,26 @@ struct SafetyPolicy: Sendable {
             .contains { path == home.appending(path: $0).path }
     }
 
+    /// 访达给 iPhone / iPad 下载的系统更新（.ipsw），可重新下载（照腾讯柠檬清理的「iOS 软件升级数据缓存」）
+    static let iosFirmwareFolders = ["Library/iTunes/iPhone Software Updates", "Library/iTunes/iPad Software Updates",
+                                     "Library/iTunes/iPod Software Updates"]
+
+    /// 访达在本机做的 iPhone / iPad 备份：每台设备一个文件夹，Info.plist 里有设备名和最后备份时间。
+    /// 只在完整扫描列出、要用户确认才删（删了就不能用这次备份恢复设备）
+    func iosBackup(_ url: URL) -> (device: String, date: Date?)? {
+        let backups = home.appending(path: "Library/Application Support/MobileSync/Backup").path
+        guard CanonicalPath.url(url.deletingLastPathComponent()).path == backups,
+              let info = NSDictionary(contentsOf: url.appending(path: "Info.plist")) else { return nil }
+        let device = (info["Device Name"] as? String) ?? (info["Display Name"] as? String) ?? "iOS 设备"
+        return (device, info["Last Backup Date"] as? Date)
+    }
+
     func reviewDescription(for url: URL, isDirectory: Bool) -> String? {
         guard isDirectory, !isProtected(url) else { return nil }
+        if let backup = iosBackup(url) {
+            let date = backup.date.map { " \($0.formatted(date: .numeric, time: .omitted))" } ?? ""
+            return "「\(backup.device)」的本机备份\(date)。删除后无法用这次备份恢复设备。"
+        }
         let path = CanonicalPath.url(url).path
         // One downloaded model inside a model tool's folder: listed on its own so it can be picked.
         if let model = modelName(url) {
@@ -152,6 +170,9 @@ struct SafetyPolicy: Sendable {
         if let match = directCaches.first(where: { path == home.appending(path: $0.0).path }) {
             return match.1
         }
+        if Self.iosFirmwareFolders.contains(where: { path == home.appending(path: $0).path }) {
+            return "iPhone、iPad 的系统更新文件，需要时访达会重新下载。"
+        }
 
         // Build artifacts inside projects. The source and the project root stay untouched.
         if name == ".build", FileManager.default.fileExists(atPath: url.deletingLastPathComponent().appending(path: "Package.swift").path) {
@@ -184,6 +205,7 @@ struct SafetyPolicy: Sendable {
         let cacheChildren = (try? FileManager.default.contentsOfDirectory(at: libraryCaches, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
         let extra = [
             ".cache/uv", ".cache/pip", ".npm/_cacache", "Library/Developer/Xcode/DerivedData",
+            "Library/iTunes/iPhone Software Updates", "Library/iTunes/iPad Software Updates", "Library/iTunes/iPod Software Updates",
             "Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
             "Library/Application Support/Notion/Partitions/notion/Cache",
             "Library/Application Support/Notion/Partitions/notion/Code Cache",
@@ -235,6 +257,9 @@ struct SafetyPolicy: Sendable {
         guard !isProtected(url) else { return nil }
         switch item.kind {
         case .review:
+            if iosBackup(url) != nil {
+                return "删除后无法用这次备份恢复设备。设备仍在使用时，请先确认已开启 iCloud 云备份或重新备份一次。"
+            }
             if url.lastPathComponent == "node_modules", hasNodeManifest(near: url),
                !url.deletingLastPathComponent().path.contains("/node_modules") {
                 return "删除后需重新安装依赖（npm install 等），依赖它的定时任务会停止。"

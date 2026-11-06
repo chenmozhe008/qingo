@@ -103,7 +103,9 @@ struct DiskScanner: Sendable {
             } else if !insideProject, url != root,
                       metadata.size >= largeFileThreshold || (metadata.size >= 100_000_000 && ["dmg", "pkg"].contains(url.pathExtension.lowercased())) {
                 let installer = ["dmg", "pkg"].contains(url.pathExtension.lowercased())
-                let note = installer ? "安装包，删除前请确认不再需要。" : "大文件，删除前请确认不再需要。"
+                let installed = installer ? InstallerMatch.installedApp(for: url) : nil
+                let note = installed.map { "已安装「\($0)」，安装包删除后不影响使用。" }
+                    ?? (installer ? "安装包，删除前请确认不再需要。" : "大文件，删除前请确认不再需要。")
                 emit(&items, item(url, kind: .largeFile, bytes: metadata.size, note: note, canTrash: false, identity: metadata.identity, modified: metadata.modified))
             }
             return metadata.size
@@ -280,6 +282,55 @@ struct DiskScanner: Sendable {
 
     private func isMovable(_ url: URL) -> Bool {
         access(url.path, W_OK) == 0 && access(url.deletingLastPathComponent().path, W_OK) == 0
+    }
+}
+
+/// 安装包对应的 App 已经装好了吗：按文件名的词和已装 App 的名字比（WeChatMac_4.0.dmg → WeChat，
+/// notion-calendar.dmg 不算 Notion）。只用来写说明，删不删仍由用户确认
+enum InstallerMatch {
+    private static let noise: Set<String> = ["mac", "macos", "osx", "darwin", "installer", "install", "setup", "universal",
+                                             "arm64", "aarch64", "x64", "x86", "amd64", "intel", "applesilicon", "latest", "release", "dmg", "pkg"]
+
+    private static let installed: [String: String] = {
+        var names: [String: String] = [:]
+        let roots = ["/Applications", NSHomeDirectory() + "/Applications"].map { URL(fileURLWithPath: $0) }
+        for root in roots {
+            for entry in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? [] {
+                let apps = entry.pathExtension == "app" ? [entry]
+                    : ((try? FileManager.default.contentsOfDirectory(at: entry, includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "app" }
+                for app in apps {
+                    let name = app.deletingPathExtension().lastPathComponent
+                    let key = normalize(name)
+                    if key.count >= 3 { names[key] = name }
+                }
+            }
+        }
+        return names
+    }()
+
+    static func installedApp(for file: URL) -> String? {
+        let words = words(file.deletingPathExtension().lastPathComponent)
+        guard !words.isEmpty else { return nil }
+        // 去掉末尾的 "mac" 一类（WeChatMac）后也比一次
+        let joined = words.joined()
+        let trimmed = noise.sorted { $0.count > $1.count }.first { joined.hasSuffix($0) && joined.count > $0.count + 2 }
+            .map { String(joined.dropLast($0.count)) }
+        return installed[joined] ?? trimmed.flatMap { installed[$0] }
+    }
+
+    /// 字母开头的词，遇到版本号停；去掉 mac、arm64 这类
+    private static func words(_ stem: String) -> [String] {
+        var out: [String] = []
+        for part in stem.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }) {
+            if part.first?.isNumber == true { break }
+            let word = String(part)
+            if !noise.contains(word) { out.append(word) }
+        }
+        return out
+    }
+
+    private static func normalize(_ name: String) -> String {
+        name.lowercased().filter { $0.isLetter || $0.isNumber }
     }
 }
 

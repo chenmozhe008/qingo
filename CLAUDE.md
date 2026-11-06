@@ -126,6 +126,8 @@
 - **不到 1 MB 的缓存不列也不清**（`ScanStore.minShownBytes`，用户嫌 279 KB 的 AE 日志单独占一张卡）；测试里的小样本要先设 `store.minShownBytes = 0`
 - **忽略名单（1.18，照 CleanMyMac Ignore list）**：右键「不再清理此项」写 UserDefaults `ignoredPaths`（按路径），`shownItems` 里排除，全选和统计都跟着变；菜单「扫描 › 恢复已忽略的项目」清空
 - **敏感类软件（`SensitiveApps`，1.18，照 Mole Protected Categories）**：VPN / 代理（Clash、Surge、Shadowrocket…）、密码管理（1Password、Bitwarden…）的 Application Support、工具数据、偏好设置，卸载时默认不勾、残留里默认不选（订阅和密码库丢了要重新导入）；按 bundle id 各段开头匹配，加名字改 `SensitiveApps.names`
+- **iOS 数据（1.19）**：`~/Library/iTunes/i{Phone,Pad,Pod} Software Updates`（.ipsw）进一键清理；`MobileSync/Backup/<设备>`（有 Info.plist 才算）是 `.review` + `decisionNote`，显示在「大文件与工程」，只完整扫描列出、要确认（`SafetyPolicy.iosBackup`）。终端没有完全磁盘访问读不到备份目录，验证靠 `IOSDataTests` 的假备份
+- 安装包「已安装」说明（`InstallerMatch`，1.19）：文件名按词比对 /Applications 和 ~/Applications 里的 App 名，去掉 mac / arm64 等词；只改说明，仍要用户确认
 - 同一家的软件合成一张卡：`CreativeApp.family`（目前 Adobe 全家），卡里每行带 App 简称；卡片按可清理大小从大到小排
 
 ## 清理三档（2026-10-24 定，已被上方最高原则取代：第二档不再出现在界面上，代码里的 `decisionNote` 只剩 TrashService 兜底和卸载残留用）

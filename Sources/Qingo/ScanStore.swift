@@ -888,6 +888,11 @@ enum ItemFilter: String, CaseIterable, Identifiable {
         }
     }
 
+    /// iPhone 备份是 `.review`（文件夹、要确认），但给人看时和大文件放在一起
+    private static func isIOSBackup(_ item: ScanItem) -> Bool {
+        item.kind == .review && item.url.deletingLastPathComponent().path.hasSuffix("/Library/Application Support/MobileSync/Backup")
+    }
+
     func contains(_ item: ScanItem) -> Bool {
         let creative = CreativeApp.of(item) != nil
         switch self {
@@ -895,7 +900,7 @@ enum ItemFilter: String, CaseIterable, Identifiable {
         case .creative: return creative
         case .chat: return false
         case .review: return item.kind == .review && !creative
-        case .large: return (item.kind == .project || item.kind == .largeFile) && !creative
+        case .large: return (item.kind == .project || item.kind == .largeFile || Self.isIOSBackup(item)) && !creative
         }
     }
 }

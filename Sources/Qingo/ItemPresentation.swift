@@ -125,6 +125,10 @@ enum ItemPresentation {
             return Info(title: "\(browser.name) 旧版本副本", icon: appIcon(bundleID: browser.bundleID), symbol: "globe")
         }
         if item.url == Leftovers.clangCache { return Info(title: "Clang 编译缓存", icon: nil, symbol: "hammer.fill") }
+        if let backup = policy.iosBackup(item.url) { return Info(title: "\(backup.device) 的备份", icon: nil, symbol: "iphone") }
+        if SafetyPolicy.iosFirmwareFolders.contains(where: { item.url.path.hasSuffix("/" + $0) }) {
+            return Info(title: "iOS 系统更新文件", icon: nil, symbol: "iphone.and.arrow.forward")
+        }
         if let app = CreativeApp.of(item) {
             return Info(title: "\(app.title) \(partTitle(for: item))", icon: appIcon(bundleID: app.bundleID), symbol: app.group.symbol)
         }
