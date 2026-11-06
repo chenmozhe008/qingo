@@ -126,7 +126,7 @@ struct SpaceMapPage: View {
             Text(title).foregroundStyle(Theme.ink2)
             Text(ByteFormat.string(bytes)).fontWeight(.semibold).monospacedDigit()
         }
-        .font(.system(size: 12.5))
+        .font(.system(size: 13.5))
         .lineLimit(1)
     }
 
@@ -136,12 +136,12 @@ struct SpaceMapPage: View {
             // 没有可清理的不写「0」（总览同一规矩）
             if cleanable > 0 {
                 Text(ByteFormat.string(cleanable))
-                    .font(.system(size: 30, weight: .bold)).foregroundStyle(Theme.blue).monospacedDigit()
+                    .font(.system(size: 34, weight: .bold)).foregroundStyle(Theme.blue).monospacedDigit()
             }
             VStack(alignment: .leading, spacing: 3) {
-                Text(cleanable > 0 ? "可直接清理" : "暂无可清理的缓存").font(.system(size: cleanable > 0 ? 14 : 17, weight: .semibold))
+                Text(cleanable > 0 ? "可直接清理" : "暂无可清理的缓存").font(.system(size: cleanable > 0 ? 16 : 18, weight: .semibold))
                 Text(cleanable > 0 ? "缓存和旧版本副本，可自动重建，移到废纸篓后可撤销" : "缓存会随使用重新生成，可稍后重新扫描")
-                    .font(.system(size: 13)).foregroundStyle(Theme.ink2).lineLimit(2)
+                    .font(.system(size: 14)).foregroundStyle(Theme.ink2).lineLimit(2)
             }
             Spacer(minLength: 12)
             if cleanable > 0 {
@@ -168,14 +168,15 @@ struct SpaceMapPage: View {
 
     private func pane(title: String, hint: String, tint: Color, bytes: Int64, blocks: [SpaceMap.Block], height: CGFloat) -> some View {
         // 太小的块看不清也点不准，并进同区最后一块的说明里不单列
-        let shown = blocks.filter { $0.bytes >= 500_000_000 }.sorted { $0.bytes > $1.bytes }
+        let shown = blocks.filter { $0.bytes >= 500_000_000 }
+            .sorted { (Self.order.firstIndex(of: $0.id) ?? 99) < (Self.order.firstIndex(of: $1.id) ?? 99) }
         return VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Circle().fill(tint).frame(width: 9, height: 9)
-                Text(title).font(.system(size: 14, weight: .semibold))
-                Text(hint).font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                Text(title).font(.system(size: 16, weight: .semibold))
+                Text(hint).font(.system(size: 13.5)).foregroundStyle(Theme.ink2)
                 Spacer(minLength: 8)
-                Text(ByteFormat.string(bytes)).font(.system(size: 16, weight: .bold)).foregroundStyle(tint).monospacedDigit()
+                Text(ByteFormat.string(bytes)).font(.system(size: 19, weight: .bold)).foregroundStyle(tint).monospacedDigit()
             }
             .padding(.horizontal, 4)
             Treemap(blocks: shown) { block, size in tile(block, size: size) }
@@ -186,7 +187,10 @@ struct SpaceMapPage: View {
     }
 
     private func tile(_ block: SpaceMap.Block, size: CGSize) -> some View {
-        let small = size.height < 96 || size.width < 150
+        let small = size.height < 110 || size.width < 170
+        // 很小的块才藏按钮；矮一点的只省说明，按钮照常（排序后「微信等聊天」会变矮，按钮不能丢）
+        let tiny = size.height < 76 || size.width < 150
+        let showNote = size.height >= 130 && size.width >= 170
         let colors = Self.colors[block.id] ?? [Theme.slate, Theme.slate]
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -194,12 +198,14 @@ struct SpaceMapPage: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .fill(RadialGradient(colors: [.white.opacity(0.22), .clear], center: .topLeading, startRadius: 0, endRadius: max(size.width, size.height) * 0.7))
             VStack(alignment: .leading, spacing: 1) {
-                Text(block.title).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
-                Text(ByteFormat.string(block.bytes)).font(.system(size: small ? 17 : 22, weight: .bold)).monospacedDigit().lineLimit(1)
+                Text(block.title).font(.system(size: 15, weight: .semibold)).lineLimit(1).minimumScaleFactor(0.75)
+                Text(ByteFormat.string(block.bytes)).font(.system(size: small ? 20 : 28, weight: .bold)).monospacedDigit().lineLimit(1).minimumScaleFactor(0.55)
                 Spacer(minLength: 0)
-                if !small {
+                if !tiny, showNote || block.action != nil {
                     HStack(alignment: .bottom, spacing: 10) {
-                        Text(block.note).font(.system(size: 12)).opacity(0.92).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        if showNote {
+                            Text(block.note).font(.system(size: 13)).opacity(0.92).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                        }
                         Spacer(minLength: 0)
                         if let action = block.action { actionButton(action) }
                     }
@@ -231,13 +237,17 @@ struct SpaceMapPage: View {
             }
         }
         .buttonStyle(.plain)
-        .font(.system(size: 12, weight: .semibold))
+        .font(.system(size: 13, weight: .semibold))
         .foregroundStyle(Theme.ink)
         .padding(.horizontal, 10)
         .padding(.vertical, 4)
         .background(Capsule().fill(.white.opacity(0.94)))
         .fixedSize()
     }
+
+    /// 块按「好理解」排，不按大小（用户：「macOS 系统应该放在第一个」）：先系统本身，再到各 App 和自己的东西，「其他」最后
+    private static let order = ["apps", "documents", "chat", "ai", "dev", "trash",
+                                "system", "systemdata", "appdata", "tooling", "other"]
 
     /// 左边暖色、右边冷色；同一区里颜色各不相同
     private static let colors: [String: [Color]] = [
@@ -266,11 +276,12 @@ struct Treemap<Tile: View>: View {
             let total = max(blocks.reduce(0) { $0 + $1.bytes }, 1)
             let gap: CGFloat = 6
             let usableHeight = proxy.size.height - gap * CGFloat(max(rows.count - 1, 0))
+            let heights = TreemapLayout.rowHeights(rows.map { $0.reduce(0) { $0 + $1.bytes } }, total: total, height: usableHeight)
             VStack(spacing: gap) {
                 ForEach(rows.indices, id: \.self) { r in
                     let row = rows[r]
                     let rowBytes = max(row.reduce(0) { $0 + $1.bytes }, 1)
-                    let height = max(usableHeight * CGFloat(rowBytes) / CGFloat(total), 56)
+                    let height = heights[r]
                     let usableWidth = proxy.size.width - gap * CGFloat(row.count - 1)
                     HStack(spacing: gap) {
                         ForEach(row) { block in
@@ -279,6 +290,24 @@ struct Treemap<Tile: View>: View {
                     }
                 }
             }
+        }
+    }
+}
+
+/// 色块区的行高（单独放，测试不用碰界面类型）
+enum TreemapLayout {
+    /// 小行至少 `minimum` 高（放得下名字和大小），其余行按大小分剩下的高度；加起来正好等于可用高度，不会撑出框
+    static func rowHeights(_ bytes: [Int64], total: Int64, height: CGFloat, minimum: CGFloat = 72) -> [CGFloat] {
+        guard !bytes.isEmpty else { return [] }
+        if height <= minimum * CGFloat(bytes.count) { return bytes.map { _ in height / CGFloat(bytes.count) } }
+        var pinned = Set<Int>()
+        while true {
+            let free = height - minimum * CGFloat(pinned.count)
+            let flexBytes = bytes.indices.filter { !pinned.contains($0) }.reduce(Int64(0)) { $0 + bytes[$1] }
+            let heights = bytes.indices.map { pinned.contains($0) ? minimum : free * CGFloat(bytes[$0]) / CGFloat(max(flexBytes, 1)) }
+            let tooSmall = bytes.indices.filter { !pinned.contains($0) && heights[$0] < minimum }
+            if tooSmall.isEmpty { return heights }
+            pinned.formUnion(tooSmall)
         }
     }
 }

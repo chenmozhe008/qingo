@@ -28,3 +28,17 @@ struct SpaceMapTests {
         #expect(map.blocks.first { $0.id == "dev" }?.bytes == 0)
     }
 }
+
+struct TreemapLayoutTests {
+    @Test func rowsFillTheHeightExactlyAndSmallRowsStayReadable() {
+        let gb: Int64 = 1_000_000_000
+        // 本机「无法清理」那一区：其他 112 + 系统数据 56 / macOS 44 + 其他 App 26 / 开发环境 16
+        let heights = TreemapLayout.rowHeights([168 * gb, 70 * gb, 16 * gb], total: 254 * gb, height: 400)
+        #expect(abs(heights.reduce(0, +) - 400) < 0.5)
+        #expect(heights.allSatisfy { $0 >= 72 - 0.01 })
+        #expect(heights[0] > heights[1])
+        // 放不下保底高度时平均分，也不超出
+        let tight = TreemapLayout.rowHeights([10, 1, 1, 1, 1, 1, 1], total: 16, height: 300)
+        #expect(abs(tight.reduce(0, +) - 300) < 0.5)
+    }
+}

@@ -787,7 +787,7 @@ struct MainView: View {
                         .help("查看空间分布")
                         Button("空间分布 ›") { withAnimation(.easeOut(duration: 0.15)) { store.showSpaceMap() } }
                             .buttonStyle(.plain)
-                            .font(.system(size: 13.5, weight: .medium))
+                            .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(Theme.blue)
                     }
                     heroCopy(compact: compact)
