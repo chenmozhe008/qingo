@@ -2442,10 +2442,11 @@ struct SummaryTile: View {
 
     var body: some View {
         Button { withAnimation(.easeOut(duration: 0.15)) { action() } } label: {
-            HStack(spacing: 12) {
+            HStack(spacing: 10) {
                 IconTile(symbol: symbol, tint: tint, size: 30)
-                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1)
-                Spacer(minLength: 8)
+                // 窄一点时标题略缩小，不截成「大文件与…」（数字不能压缩，以前只能截标题）
+                Text(title).font(.system(size: 14, weight: .medium)).lineLimit(1).minimumScaleFactor(0.8).layoutPriority(1)
+                Spacer(minLength: 6)
                 if busy {
                     ProgressView().controlSize(.small)
                 } else if let bytes, bytes > 0 {
@@ -2456,7 +2457,7 @@ struct SummaryTile: View {
                 }
                 Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
             }
-            .padding(.horizontal, 16)
+            .padding(.horizontal, 14)
             .padding(.vertical, 14)
             .glass(radius: 18)
             .contentShape(Rectangle())
