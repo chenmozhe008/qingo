@@ -188,6 +188,13 @@
 - **后台任务不许用 `SMAppService`（2026-11-05 实测）**：它启动时要求 Apple 开发者身份，临时签名和自签名都会被系统杀掉（`Launch Constraint Violation`，还会弹「意外退出」），开发证书下测不出来。改用 `~/Library/LaunchAgents` 的普通任务；包里旧 plist 只留给老用户注销旧注册。验证要用发布签名，看 `launchctl print` 的 last exit code
 - **实测（2026-10-29）**：App 必须在 `/Applications` 或 `~/Applications` 这类正常位置，放在项目 `tmp/` 里系统直接拒通知权限；开发证书签名下通知、注册、点击回调都通。验证后台任务：`launchctl print gui/$(id -u)/io.github.chenmozhe008.qingo.space-check`；验证通知：`QINGO_PRETEND_FREE=8000000000 ~/Applications/小清.app/Contents/MacOS/Qingo --check-space`（假装只剩 8 GB；发过一次后 24 小时内不再发，重测先 `defaults delete io.github.chenmozhe008.qingo spaceAlertLastDate`）。这个模式会打印通知授权状态：`authorization: 1` 是被拒（通知发了但不显示，10-29 测试时就是授权框被点了「不允许」），去系统设置 › 通知 › 小清打开
 
+## 空间分布（1.20，2026-11-06 用户看效果图 `output/mockups/s-map/d-combined.png` 定：A 色块 + C 分区）
+
+- 入口：总览的圆环本身（可点）和圆环下「空间分布 ›」；左栏不加行。页面＝`SpaceMapPage`（`SpaceMapView.swift`），状态 `store.showingSpaceMap`，启动参数 `--space-map`
+- 布局：页头 → 容量条（可清理 / 需要确认 / 无法清理 / 可用）→「可直接清理」卡（没有时写「暂无可清理的缓存」，不写 0）→ 左「需要确认」暖色块、右「无法清理」冷色块（**右边别用灰**，用户：那是看得最多的画面）。两区宽度按大小分、每区至少 36%；块两两一行，行高、行内宽度按大小；< 500 MB 的块不画；窄窗口两区上下排
+- 数据（`SpaceMapper`，按已分配空间，约 1 分钟，存 `results/space-map.json`，超过一天打开时重量）：应用程序、AI 工具数据（AI 组工具的 roots 和 Application Support 文件夹 + `.codex`）、开发项目（开发缓存的根目录）、资料与作品（个人文件夹可见项，去掉开发项目）、微信等聊天（扫描结果的 chatApps）、废纸篓（≥ 500 MB 才列）｜开发环境（家目录隐藏文件夹 + Homebrew）、macOS 系统（`diskutil apfs list -plist` 里启动盘的 System/Preboot/Recovery/VM）、其他 App 的数据（Application Support 去掉聊天和 AI）、系统数据（/Library、AssetsV2、/Users/Shared、/private/var 除 vm）、其他＝已用 − 各块 − 可直接清理
+- **不读沙盒容器**（会弹授权框），所以「其他」里主要是容器和系统更新准备文件，作者本机约 110 GB；整台 Mac 的部分只在量当前用户自己的个人文件夹时才量（测试、演示不带）
+
 ## 空间变化报告（2026-10-29 用户看效果图 `output/mockups/r-growth/` 后定：A 卡片 + 点进去是 B 的完整页）
 
 - 用户原话：「突然间哪一块集聚的占空间，你会有个分析，哪个软件、什么原因导致的」

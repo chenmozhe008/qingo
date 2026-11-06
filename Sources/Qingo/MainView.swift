@@ -599,7 +599,7 @@ struct MainView: View {
     }
 
     private func categoryRow(_ category: ItemFilter, bytes: Int64) -> some View {
-        let selected = store.tool == nil && !store.showingOverview && !store.showingGrowth && store.filter == category
+        let selected = store.tool == nil && !store.showingOverview && !store.showingGrowth && !store.showingSpaceMap && store.filter == category
         let tint = Theme.color(category)
         return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectCategory(category) } } label: {
             HStack(spacing: 10) {
@@ -652,6 +652,8 @@ struct MainView: View {
             topBar(result)
             if store.showingOverview {
                 overviewPage(result)
+            } else if store.showingSpaceMap {
+                SpaceMapPage(store: store)
             } else if store.showingGrowth, let growth = store.spaceGrowth {
                 growthPage(growth)
             } else if store.showingScanDetail {
@@ -774,8 +776,20 @@ struct MainView: View {
                 Spacer(minLength: 6)
                 HStack(alignment: .center, spacing: compact ? 30 : 48) {
                     // Free space is read live: results go stale as soon as anything is deleted.
-                    TimelineView(.periodic(from: .now, by: 30)) { _ in spaceRing(result) }
-                        .frame(width: compact ? 220 : 320, height: compact ? 220 : 320)
+                    // 圆环和下面一行字都进「空间分布」页
+                    VStack(spacing: compact ? 6 : 10) {
+                        Button { withAnimation(.easeOut(duration: 0.15)) { store.showSpaceMap() } } label: {
+                            TimelineView(.periodic(from: .now, by: 30)) { _ in spaceRing(result) }
+                                .frame(width: compact ? 220 : 320, height: compact ? 220 : 320)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                        .help("查看空间分布")
+                        Button("空间分布 ›") { withAnimation(.easeOut(duration: 0.15)) { store.showSpaceMap() } }
+                            .buttonStyle(.plain)
+                            .font(.system(size: 13.5, weight: .medium))
+                            .foregroundStyle(Theme.blue)
+                    }
                     heroCopy(compact: compact)
                     Spacer(minLength: 0)
                 }

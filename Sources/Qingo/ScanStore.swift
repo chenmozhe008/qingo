@@ -145,6 +145,7 @@ final class ScanStore: ObservableObject {
             showSavedResult()
         }
         tool = page
+        showingSpaceMap = false
         selectedID = nil
         if page == .uninstall { uninstaller.loadIfNeeded() }
     }
@@ -212,6 +213,7 @@ final class ScanStore: ObservableObject {
         }
         // `--growth`: open the space-change report (needs a notable change against the comparison scan).
         if arguments.contains("--growth"), spaceGrowth != nil { showGrowth() }
+        if arguments.contains("--space-map") { showSpaceMap() }
         // `--scan-detail`: open the shown location's own page instead of the overview.
         if arguments.contains("--scan-detail") { showScanDetail() }
         // `--creative-app=workbuddy`: open the creative page scrolled to that tool.
@@ -393,10 +395,42 @@ final class ScanStore: ObservableObject {
 
     func showOverview() {
         tool = nil
+        showingSpaceMap = false
         showingOverview = true
         showingScanDetail = false
         showingGrowth = false
         selectedID = nil
+    }
+
+    /// 「空间分布」页：从总览的圆环进入。各块大小量一次存 `space-map.json`，超过一天或用户点「重新测量」才再量
+    @Published var showingSpaceMap = false
+    @Published private(set) var spaceMap: SpaceMap? = SpaceMap.load()
+    @Published private(set) var measuringSpaceMap: String?
+
+    func showSpaceMap() {
+        guard !isScanning, !isCleaning else { return }
+        tool = nil
+        showingOverview = false
+        showingScanDetail = false
+        showingGrowth = false
+        showingSpaceMap = true
+        selectedID = nil
+        if spaceMap.map({ Date().timeIntervalSince($0.measuredAt) > 86_400 }) ?? true { measureSpaceMap() }
+    }
+
+    func measureSpaceMap() {
+        guard measuringSpaceMap == nil else { return }
+        measuringSpaceMap = "正在测量"
+        let mapper = SpaceMapper(home: policy.home, devRoot: dev.root,
+                                 chatBytes: (result?.chatApps ?? []).compactMap(\.bytes).reduce(0, +))
+        Task.detached(priority: .utility) { [weak self] in
+            let map = mapper.measure { step in Task { @MainActor in self?.measuringSpaceMap = "正在测量：\(step)" } }
+            map.save()
+            await MainActor.run {
+                self?.spaceMap = map
+                self?.measuringSpaceMap = nil
+            }
+        }
     }
 
     /// The space-change report, opened from the overview's card.
@@ -408,6 +442,7 @@ final class ScanStore: ObservableObject {
     func showGrowth() {
         spaceHistory = SpaceHistory.load()
         tool = nil
+        showingSpaceMap = false
         showingOverview = false
         showingScanDetail = false
         showingGrowth = true
@@ -428,6 +463,7 @@ final class ScanStore: ObservableObject {
 
     func showScanDetail() {
         tool = nil
+        showingSpaceMap = false
         showingOverview = false
         showingGrowth = false
         showingScanDetail = true
@@ -436,6 +472,7 @@ final class ScanStore: ObservableObject {
 
     func selectCategory(_ category: ItemFilter) {
         tool = nil
+        showingSpaceMap = false
         showingOverview = false
         showingScanDetail = false
         showingGrowth = false
@@ -502,6 +539,7 @@ final class ScanStore: ObservableObject {
         // Coming back from a tool page shows the location as it was.
         if tool != nil, isCurrentScope(url, quick: quick) {
             tool = nil
+            showingSpaceMap = false
             return
         }
         // A location opens its own page; the overview is the whole Mac.
@@ -541,6 +579,7 @@ final class ScanStore: ObservableObject {
         guard !isScanning, !isCleaning else { return }
         showAbout = false
         tool = nil
+        showingSpaceMap = false
         scanKnownCaches()
     }
 
@@ -588,6 +627,7 @@ final class ScanStore: ObservableObject {
     func scan(clearMessage: Bool = true) {
         guard !isScanning, !isCleaning else { return }
         tool = nil
+        showingSpaceMap = false
         isScanning = true
         liveFound = []
         progress = ScanProgress(scannedCount: 0, currentFolder: root.path)
