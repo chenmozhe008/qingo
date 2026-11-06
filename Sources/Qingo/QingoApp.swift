@@ -47,6 +47,9 @@ struct QingoApp: App {
                     .keyboardShortcut("o", modifiers: .command)
                 Button("重新扫描") { store.scan() }
                     .keyboardShortcut("r", modifiers: .command)
+                Divider()
+                Button(store.ignoredPaths.isEmpty ? "恢复已忽略的项目" : "恢复已忽略的项目（\(store.ignoredPaths.count) 项）") { store.restoreIgnored() }
+                    .disabled(store.ignoredPaths.isEmpty)
             }
         }
     }

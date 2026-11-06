@@ -1370,6 +1370,10 @@ struct MainView: View {
             }
             Button(expanded ? "收起详情" : "查看详情") { toggleDetail(item) }
             Button("在访达中显示") { reveal(item) }
+            if item.canTrash {
+                Divider()
+                Button("不再清理此项") { store.ignore([item]) }
+            }
         }
     }
 
@@ -1468,6 +1472,10 @@ struct MainView: View {
                 Button(allPicked ? "取消选择" : "全部选择（\(cleanable.count) 项）") { store.setGroupSelected(group.items, selected: !allPicked) }
             }
             Button(expanded ? "收起" : "显示全部", action: toggleExpanded)
+            if !cleanable.isEmpty {
+                Divider()
+                Button("不再清理这 \(cleanable.count) 项") { store.ignore(cleanable) }
+            }
         }
     }
 

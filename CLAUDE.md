@@ -124,6 +124,8 @@
 - 卸载 App 时连它的工具数据（对话、模型、设置）一起删，默认全选；**例外（2026-11-03 用户同意）：剪辑和设计软件的项目、草稿（`.projects`）和系统支持文件（`.system`）默认不勾**；「已删除应用的残留」规则已经很严，默认全选
 - **一键清理，软件开着也照清**（2026-10-25 用户：「我清垃圾就是要快，让我一个个关软件不符合清垃圾的逻辑」）：缓存（`kind == .cache && canTrash`）不做占用检查、不要求退出软件——缓存删了软件会重建，不丢东西；占用检查（lsof）只留给大文件。只有缓存时点「清理」直接清、不弹确认框（进废纸篓 + 结果条「撤销」已经兜底）；选了大文件才弹确认。清完结果条一句话提开着的软件「重开一次才完全腾出」。**别再做「先退出这些软件」的列表或按钮**（做过，被否）
 - **不到 1 MB 的缓存不列也不清**（`ScanStore.minShownBytes`，用户嫌 279 KB 的 AE 日志单独占一张卡）；测试里的小样本要先设 `store.minShownBytes = 0`
+- **忽略名单（1.18，照 CleanMyMac Ignore list）**：右键「不再清理此项」写 UserDefaults `ignoredPaths`（按路径），`shownItems` 里排除，全选和统计都跟着变；菜单「扫描 › 恢复已忽略的项目」清空
+- **敏感类软件（`SensitiveApps`，1.18，照 Mole Protected Categories）**：VPN / 代理（Clash、Surge、Shadowrocket…）、密码管理（1Password、Bitwarden…）的 Application Support、工具数据、偏好设置，卸载时默认不勾、残留里默认不选（订阅和密码库丢了要重新导入）；按 bundle id 各段开头匹配，加名字改 `SensitiveApps.names`
 - 同一家的软件合成一张卡：`CreativeApp.family`（目前 Adobe 全家），卡里每行带 App 简称；卡片按可清理大小从大到小排
 
 ## 清理三档（2026-10-24 定，已被上方最高原则取代：第二档不再出现在界面上，代码里的 `decisionNote` 只剩 TrashService 兜底和卸载残留用）

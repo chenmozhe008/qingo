@@ -10,7 +10,8 @@ final class ScanStore: ObservableObject {
             decisionNotes = Self.decisionNotes(for: result, policy: policy)
             // Caches too small to matter are left out everywhere: listing 279 KB of logs only lengthens the list.
             let minimum = minShownBytes
-            shownItems = result?.items.filter { !$0.canTrash || $0.bytes >= minimum } ?? []
+            let ignored = ignoredPaths
+            shownItems = result?.items.filter { (!$0.canTrash || $0.bytes >= minimum) && !ignored.contains($0.url.path) } ?? []
             // Sidebar, cards and list all ask per category on every redraw; sort items once per result.
             var buckets: [ItemFilter: [ScanItem]] = [:]
             for category in ItemFilter.allCases { buckets[category] = shownItems.filter { category.contains($0) } }
@@ -25,6 +26,30 @@ final class ScanStore: ObservableObject {
     @Published private(set) var spaceGrowth: SpaceGrowth?
     /// The quick scan the report compares against, saved as "quick-baseline" (see `SpaceGrowth.nextBaseline`).
     private var growthBaseline: ScanResult?
+    /// 用户说「不再清理」的条目（路径）：之后的扫描结果里不显示、不进一键清理（照 CleanMyMac 的忽略列表）。
+    /// 恢复在菜单「扫描 › 恢复已忽略的项目」。
+    static let ignoredKey = "ignoredPaths"
+    @Published private(set) var ignoredPaths = Set(UserDefaults.standard.stringArray(forKey: ScanStore.ignoredKey) ?? [])
+
+    func ignore(_ items: [ScanItem]) {
+        guard !isCleaning, !items.isEmpty else { return }
+        ignoredPaths.formUnion(items.map(\.url.path))
+        for item in items { selectedCleanupIDs.remove(item.id) }
+        saveIgnored()
+    }
+
+    func restoreIgnored() {
+        guard !isCleaning else { return }
+        ignoredPaths.removeAll()
+        saveIgnored()
+    }
+
+    private func saveIgnored() {
+        UserDefaults.standard.set(ignoredPaths.sorted(), forKey: Self.ignoredKey)
+        let current = result
+        result = current   // 重新筛一遍显示的条目和统计
+    }
+
     /// Cleanable items below this are not listed or cleaned (tests set 0 for tiny fixtures; set before `result`).
     var minShownBytes: Int64 = 1_000_000
     private(set) var shownItems: [ScanItem] = []

@@ -197,6 +197,22 @@ enum AppFamily {
     }
 }
 
+/// 删了会丢订阅、登录或密码库的软件：VPN / 代理、密码管理（照 Mole 审计文档的 Protected Categories）。
+/// 卸载时它的数据和设置默认不勾，「已删除应用的残留」里默认不选：重装后要重新导入订阅、密码库。
+enum SensitiveApps {
+    static let names = ["clash", "mihomo", "v2ray", "xray", "shadowsocks", "shadowrocket", "surge", "quantumult", "stash", "loon",
+                        "sing-box", "singbox", "nekoray", "hiddify", "tailscale", "wireguard", "openvpn", "tunnelblick", "expressvpn",
+                        "nordvpn", "astrill", "1password", "bitwarden", "keepass", "keepassxc", "lastpass", "enpass", "dashlane",
+                        "macpass", "authy", "authenticator", "onepassword"]
+
+    /// 按 bundle id / 文件夹名的各段开头比，避免 balloon 被当成 loon
+    static func matches(_ name: String) -> Bool {
+        let parts = name.lowercased().split(whereSeparator: { ".-_ ".contains($0) }).map(String.init)
+        let joined = name.lowercased()
+        return names.contains { token in parts.contains { $0.hasPrefix(token) } || (token.contains("-") && joined.contains(token)) }
+    }
+}
+
 /// Leftovers of an app that is gone, merged by bundle id ("com.vendor.app").
 struct OrphanGroup: Identifiable, Sendable {
     let id: String
@@ -335,7 +351,12 @@ struct AppUninstaller: Sendable {
 
     /// Uninstalling means not wanting the app any more: what it left goes (用户定，2026-10-25), and all of it lands in
     /// the Trash. Projects and drafts stay unless picked (用户定，2026-11-03): emptying the Trash would lose the work.
-    static func pickedByDefault(_ trace: AppTrace) -> Bool { ![.projects, .system].contains(trace.kind) }
+    static func pickedByDefault(_ trace: AppTrace) -> Bool {
+        if [.projects, .system].contains(trace.kind) { return false }
+        // VPN / 代理 / 密码管理的数据和设置里是订阅和密码库：要删得自己勾
+        if [.support, .toolData, .preferences].contains(trace.kind), SensitiveApps.matches(trace.url.lastPathComponent) { return false }
+        return true
+    }
 
     private func namespaced(in folder: String, id: String, suffix: String) -> [URL] {
         let directory = library.appending(path: folder)
@@ -658,7 +679,7 @@ final class UninstallStore: ObservableObject {
                 guard let self else { return }
                 self.orphans = orphans
                 // The rules that find these are strict enough to clean them without asking.
-                self.pickedOrphans = Set(orphans.map(\.id))
+                self.pickedOrphans = Set(orphans.filter { !SensitiveApps.matches($0.id) }.map(\.id))
                 self.isLoading = false
                 Self.saveCache(self.apps)
             }
@@ -722,7 +743,7 @@ final class UninstallStore: ObservableObject {
         selectedID = nil
         report = nil
         message = nil
-        pickedOrphans = Set((orphans ?? []).map(\.id))
+        pickedOrphans = Set((orphans ?? []).filter { !SensitiveApps.matches($0.id) }.map(\.id))
     }
 
     private func pickDefaults(for app: InstalledApp) {
