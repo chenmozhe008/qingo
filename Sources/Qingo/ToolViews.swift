@@ -226,25 +226,35 @@ private struct ToolTopBar<Trailing: View>: View {
 struct UninstallView: View {
     @ObservedObject var store: UninstallStore
     let appearance: AppearanceMode
+    var sentinelEnabled: Binding<Bool> = .constant(true)
+    var embedded: Bool = false
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolTopBar(title: "卸载应用", meta: store.apps.isEmpty && store.isLoading ? "正在读取…" : "\(store.apps.count) 个应用") {
-                HStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.ink3)
-                    TextField("搜索应用", text: $store.search).textFieldStyle(.plain).font(.system(size: 13))
+            if !embedded {
+                ToolTopBar(title: "卸载应用", meta: store.apps.isEmpty && store.isLoading ? "正在读取…" : "\(store.apps.count) 个应用") {
+                    Toggle("卸载残留提醒", isOn: sentinelEnabled)
+                        .toggleStyle(.switch)
+                        .controlSize(.small)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Theme.ink2)
+                        .help("将应用移到废纸篓时自动提醒清理其关联残留")
+                    HStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                        TextField("搜索应用", text: $store.search).textFieldStyle(.plain).font(.system(size: 13))
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(minWidth: 120, maxWidth: 210, minHeight: 32, maxHeight: 32)
+                    .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.fill(0.05)))
+                    .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.line))
+                    Picker("排序", selection: $store.sort) {
+                        ForEach(UninstallStore.Sort.allCases) { Text($0.rawValue).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    // As wide as its labels need: a fixed width let it spill over the search field.
+                    .fixedSize()
                 }
-                .padding(.horizontal, 10)
-                .frame(minWidth: 120, maxWidth: 210, minHeight: 32, maxHeight: 32)
-                .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Theme.fill(0.05)))
-                .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Theme.line))
-                Picker("排序", selection: $store.sort) {
-                    ForEach(UninstallStore.Sort.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                // As wide as its labels need: a fixed width let it spill over the search field.
-                .fixedSize()
             }
             // Narrow windows give the list less room, so the details keep enough to read.
             GeometryReader { proxy in
@@ -253,7 +263,7 @@ struct UninstallView: View {
                     detail.frame(maxWidth: .infinity)
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, embedded ? 30 : 22)
             .padding(.bottom, 18)
         }
         .sheet(isPresented: $store.showConfirm) { confirmSheet }
@@ -265,12 +275,25 @@ struct UninstallView: View {
     /// Leftovers sit in their own card above the list, so the list ends cleanly instead of being cut by a pinned row.
     private var appList: some View {
         VStack(spacing: 10) {
-            orphanRow
-                .glass(radius: 16)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            if !embedded {
+                orphanRow
+                    .glass(radius: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                launchAgentsRow
+                    .glass(radius: 16)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
             ScrollView {
-                LazyVStack(spacing: 0) {
-                    ForEach(store.visibleApps) { app in appRow(app) }
+                if store.visibleApps.isEmpty && !store.apps.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "magnifyingglass").font(.system(size: 22)).foregroundStyle(Theme.ink3)
+                        Text("未找到匹配的应用").font(.system(size: 13.5, weight: .medium)).foregroundStyle(Theme.ink2)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 180)
+                } else {
+                    LazyVStack(spacing: 0) {
+                        ForEach(store.visibleApps) { app in appRow(app) }
+                    }
                 }
             }
             .frame(maxHeight: .infinity)
@@ -335,6 +358,32 @@ struct UninstallView: View {
         .buttonStyle(.plain)
     }
 
+    private var launchAgentsRow: some View {
+        let orphanCount = store.launchAgents.filter(\.orphaned).count
+        return Button { withAnimation(.easeOut(duration: 0.15)) { store.selectLaunchAgents() } } label: {
+            HStack(spacing: 12) {
+                IconTile(symbol: "gearshape.2.fill", tint: Theme.indigo, size: 32)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("后台启动项").font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    HStack(spacing: 8) {
+                        Text(store.launchAgents.isEmpty ? "暂无记录" : "\(store.launchAgents.count) 项")
+                            .font(.system(size: 12)).foregroundStyle(Theme.ink3)
+                        if orphanCount > 0 {
+                            ToolTag(text: "\(orphanCount) 个失效", tint: Theme.amber)
+                        }
+                    }
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right").font(.system(size: 11, weight: .semibold)).foregroundStyle(Theme.ink3)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(store.showLaunchAgents ? Theme.indigo.opacity(0.12) : .clear)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
     // MARK: Detail
 
     @ViewBuilder
@@ -343,9 +392,11 @@ struct UninstallView: View {
             ToolResultBanner(report: store.report, message: store.message, canUndo: !store.undoable.isEmpty,
                              undo: store.undo, close: { store.report = nil; store.message = nil })
             Group {
-                if store.showOrphans {
+                if store.showLaunchAgents {
+                    launchAgentsDetail
+                } else if store.showOrphans {
                     orphanDetail
-                } else if let app = store.selectedApp {
+                } else if let app = store.selectedApp, store.visibleApps.contains(where: { $0.id == app.id }) {
                     appDetail(app)
                 } else {
                     VStack(spacing: 12) {
@@ -359,6 +410,79 @@ struct UninstallView: View {
             .frame(maxHeight: .infinity)
             .glass()
             .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+    }
+
+    private var launchAgentsDetail: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text("开机自启与后台服务").font(.system(size: 17, weight: .bold))
+                    Text("移除前会先尝试停用服务，再将配置文件移到废纸篓，随时可恢复。")
+                        .font(.system(size: 12.5)).foregroundStyle(Theme.ink2)
+                }
+                Spacer()
+            }
+            .padding(20)
+            InsetHairlineDivider(leading: 20)
+            if store.launchAgents.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "checkmark.seal").font(.system(size: 28)).foregroundStyle(Theme.ink3)
+                    Text("当前没有第三方后台自启服务").font(.system(size: 14)).foregroundStyle(Theme.ink2)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 0) {
+                        ForEach(Array(store.launchAgents.enumerated()), id: \.element.id) { idx, agent in
+                            if idx > 0 { InsetHairlineDivider(leading: 20) }
+                            HStack(spacing: 12) {
+                                IconTile(symbol: agent.orphaned ? "exclamationmark.triangle.fill" : "bolt.fill",
+                                         tint: agent.orphaned ? Theme.amber : Theme.indigo, size: 28)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(agent.label).font(.system(size: 13.5, weight: .semibold)).lineLimit(1)
+                                    HStack(spacing: 8) {
+                                        if agent.orphaned {
+                                            ToolTag(text: "原应用已卸载", tint: Theme.amber)
+                                        }
+                                        Text(agent.program ?? ToolText.short(agent.url))
+                                            .font(.system(size: 11.5, design: .monospaced))
+                                            .foregroundStyle(Theme.ink3)
+                                            .lineLimit(1)
+                                            .truncationMode(.middle)
+                                    }
+                                }
+                                Spacer(minLength: 10)
+                                Button("在访达中显示", systemImage: "folder") {
+                                    NSWorkspace.shared.activateFileViewerSelecting([agent.url])
+                                }
+                                .labelStyle(.iconOnly)
+                                .buttonStyle(.plain)
+                                .foregroundStyle(Theme.ink2)
+                                Button("移到废纸篓…") {
+                                    store.pendingLaunchAgent = agent
+                                }
+                                .buttonStyle(ToolbarButtonStyle(tinted: agent.orphaned))
+                                .disabled(store.isWorking || store.removingLaunchAgentID != nil)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 11)
+                        }
+                    }
+                }
+            }
+        }
+        .background {
+            Color.clear
+                .alert("移除后台启动项", isPresented: Binding(
+                    get: { store.pendingLaunchAgent != nil },
+                    set: { if !$0 { store.pendingLaunchAgent = nil } }
+                ), presenting: store.pendingLaunchAgent) { agent in
+                    Button("取消", role: .cancel) {}
+                    Button("移到废纸篓", role: .destructive) { store.removeLaunchAgent(agent) }
+                } message: { agent in
+                    Text("将尝试停用后台服务「\(agent.label)」并把配置文件移到废纸篓，可在访达中随时恢复。")
+                }
         }
     }
 
@@ -380,6 +504,38 @@ struct UninstallView: View {
                     }
                 }
                 .padding(18)
+                VStack(alignment: .leading, spacing: 0) {
+                    if let traces {
+                        let cacheTraces = traces.filter { $0.kind == .caches }
+                        if !cacheTraces.isEmpty {
+                            let cacheBytes = cacheTraces.reduce(0) { $0 + $1.bytes }
+                            HStack(spacing: 10) {
+                                Text("可仅清理缓存，保留应用本体与账号设置")
+                                    .font(.system(size: 12.5))
+                                    .foregroundStyle(Theme.ink2)
+                                Spacer()
+                                Button {
+                                    store.clearAppCaches(of: app)
+                                } label: {
+                                    if store.isWorking {
+                                        HStack(spacing: 6) {
+                                            ProgressView().controlSize(.small)
+                                            Text("正在清理…")
+                                        }
+                                    } else {
+                                        Text("仅清缓存（\(ByteFormat.string(cacheBytes))）")
+                                    }
+                                }
+                                .buttonStyle(ToolbarButtonStyle(tinted: true))
+                                .disabled(store.isWorking || store.isRunning(app))
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(Theme.blue.opacity(0.06))
+                            .overlay(alignment: .top) { Rectangle().fill(Theme.line).frame(height: 1) }
+                        }
+                    }
+                }
                 if let traces {
                     // The bundle, then all small leftovers as one row (details on demand), then a tool's own data.
                     let related = traces.filter { ![.app, .toolData, .projects, .system].contains($0.kind) }
@@ -649,17 +805,20 @@ struct UninstallView: View {
 struct DevProjectsView: View {
     @ObservedObject var store: DevStore
     let appearance: AppearanceMode
+    var embedded: Bool = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolTopBar(title: "开发缓存", meta: meta) {
-                Button("更换文件夹…") { store.chooseRoot() }
-                    .buttonStyle(ToolbarButtonStyle(large: true))
-                    .disabled(store.isScanning || store.isCleaning)
-                Button { store.scan() } label: { Label(store.result == nil ? "开始扫描" : "重新扫描", systemImage: "arrow.clockwise") }
-                    .buttonStyle(ToolbarButtonStyle(large: true))
-                    .disabled(store.isScanning || store.isCleaning)
+            if !embedded {
+                ToolTopBar(title: "开发缓存", meta: meta) {
+                    Button("更换文件夹…") { store.chooseRoot() }
+                        .buttonStyle(ToolbarButtonStyle(large: true))
+                        .disabled(store.isScanning || store.isCleaning)
+                    Button { store.scan() } label: { Label(store.result == nil ? "开始扫描" : "重新扫描", systemImage: "arrow.clockwise") }
+                        .buttonStyle(ToolbarButtonStyle(large: true))
+                        .disabled(store.isScanning || store.isCleaning)
+                }
             }
             if store.isScanning {
                 scanning
@@ -725,11 +884,13 @@ struct DevProjectsView: View {
                     Text(ToolText.short(URL(fileURLWithPath: store.currentFolder)))
                         .font(.system(size: 12.5)).foregroundStyle(Theme.ink3)
                         .lineLimit(1).truncationMode(.middle).frame(maxWidth: 300).padding(.top, 8)
-                    ScanProgressBar(fraction: store.estimatedProgress,
-                                    fill: LinearGradient(colors: [Theme.indigo, Theme.blue], startPoint: .leading, endPoint: .trailing),
-                                    glow: Theme.indigo)
-                        .frame(width: compact ? 220 : 270, height: 6)
-                        .padding(.top, 18)
+                    TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+                        ScanProgressBar(fraction: store.estimatedProgress,
+                                        fill: LinearGradient(colors: [Theme.indigo, Theme.blue], startPoint: .leading, endPoint: .trailing),
+                                        glow: Theme.indigo)
+                            .frame(width: compact ? 220 : 270, height: 6)
+                    }
+                    .padding(.top, 18)
                     Button { store.cancelScan() } label: { Label("停止扫描", systemImage: "stop.circle.fill") }
                         .buttonStyle(ToolbarButtonStyle(large: true, tinted: true))
                         .keyboardShortcut(.cancelAction).padding(.top, 22)
@@ -958,9 +1119,18 @@ struct DevProjectsView: View {
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(Theme.blue)
                     .keyboardShortcut("a", modifiers: .command)
-                Button(store.isCleaning ? "正在清理…" : items.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(items)))") { store.reviewCleanup() }
-                    .buttonStyle(HeroButtonStyle())
-                    .disabled(items.isEmpty || store.isCleaning)
+                Button { store.reviewCleanup() } label: {
+                    if store.isCleaning {
+                        HStack(spacing: 6) {
+                            ProgressView().controlSize(.small).tint(.white)
+                            Text("正在清理…")
+                        }
+                    } else {
+                        Text(items.isEmpty ? "清理" : "清理 \(ByteFormat.string(ScanStore.sum(items)))")
+                    }
+                }
+                .buttonStyle(HeroButtonStyle())
+                .disabled(items.isEmpty || store.isCleaning)
                     .opacity(items.isEmpty ? 0.55 : 1)
             }
         }

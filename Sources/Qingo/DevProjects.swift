@@ -11,6 +11,11 @@ struct DevProject: Identifiable, Codable, Sendable {
 
     var name: String { id.lastPathComponent }
     var bytes: Int64 { ScanStore.sum(artifacts) }
+
+    func isIdle(olderThanDays days: Int = 14, now: Date = Date()) -> Bool {
+        guard let modified else { return false }
+        return now.timeIntervalSince(modified) >= Double(days) * 86_400
+    }
 }
 
 struct DevScanResult: Codable, Sendable {
@@ -160,6 +165,36 @@ final class DevStore: ObservableObject {
     // MARK: Derived
 
     var allArtifacts: [ScanItem] { result?.projects.flatMap(\.artifacts) ?? [] }
+
+    func idleProjects(olderThanDays days: Int = 14) -> [DevProject] {
+        (result?.projects ?? []).filter { $0.isIdle(olderThanDays: days) }
+    }
+
+    var idleArtifactsBytes: Int64 {
+        idleProjects().reduce(0) { $0 + $1.bytes }
+    }
+
+    func purgeIdleArtifacts(olderThanDays days: Int = 14, onComplete: @escaping @MainActor () -> Void = {}) {
+        let targets = idleProjects(olderThanDays: days).flatMap(\.artifacts)
+        guard !targets.isEmpty, !isCleaning else { return }
+        isCleaning = true
+        report = nil
+        message = nil
+        let scanPolicy = policy
+        Task { [weak self] in
+            let outcome = await Task.detached(priority: .userInitiated) {
+                await TrashService.moveAll(targets, policy: scanPolicy)
+            }.value
+            guard let self else { return }
+            self.isCleaning = false
+            let moved = Set(outcome.moved.map(\.item.id) + outcome.gone)
+            self.selected.subtract(moved)
+            self.update(removing: moved, adding: [])
+            self.undoable = outcome.moved
+            self.report = outcome.report
+            onComplete()
+        }
+    }
     var selectedItems: [ScanItem] { allArtifacts.filter { selected.contains($0.id) } }
     var selectedDecided: [ScanItem] { selectedItems.filter { decisionNotes[$0.id] != nil } }
     func isDecidable(_ item: ScanItem) -> Bool { decisionNotes[item.id] != nil }
@@ -220,6 +255,13 @@ final class DevStore: ObservableObject {
 
     func cancelDiscovery(_ id: UUID) {
         if isScanning && scanID == id { cancelScan() }
+    }
+
+    func applyScanResult(_ value: DevScanResult) {
+        guard !isScanning, !isCleaning else { return }
+        result = value
+        selectAll()
+        save()
     }
 
     func chooseRoot() {

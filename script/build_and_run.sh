@@ -6,7 +6,7 @@ APP_NAME="小清"
 EXECUTABLE_NAME="Qingo"
 BUNDLE_ID="io.github.chenmozhe008.qingo"
 MIN_SYSTEM_VERSION="14.0"
-APP_VERSION="1.20.2"
+APP_VERSION="1.24.0"
 # 默认生成开发版；正式包必须明确指定，并从版本标签对应的干净源码构建。
 DEV_BUILD=1
 if [[ "${QINGO_RELEASE_BUILD:-0}" == "1" ]]; then
@@ -79,13 +79,30 @@ cat >"$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>$MIN_SYSTEM_VERSION</string>
   <key>NSPrincipalClass</key><string>NSApplication</string>
+  <key>NSDownloadsFolderUsageDescription</key><string>小清需要访问「下载」文件夹以识别旧安装包和大文件，不会自动删除任何个人文件。</string>
+  <key>NSDesktopFolderUsageDescription</key><string>小清仅在扫描空间占用时读取「桌面」文件大小，不会未经确认修改任何文件。</string>
+  <key>NSDocumentsFolderUsageDescription</key><string>小清仅在扫描空间占用时读取「文稿」文件大小，不会未经确认修改任何文件。</string>
+  <key>NSRemovableVolumesUsageDescription</key><string>小清仅在你选择扫描外接磁盘时读取其空间占用。</string>
 </dict>
 </plist>
 PLIST
 
-# A stable signing identity lets macOS recognize updated builds as the same app.
-# Ad-hoc signatures change with the binary and can cause repeated privacy prompts.
-codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" --timestamp=none "$APP_BUNDLE"
+# Always prefer the machine's unified release-sign.sh certificate (same as Shandian & install-dev.sh)
+# so dist/小清.app and ~/Applications/小清.app share the exact same TCC identity and never fight over permissions.
+RELEASE_SIGN="$HOME/Coding/tools/mac-app-workflow/release-sign.sh"
+if [[ -x "$RELEASE_SIGN" ]]; then
+  "$RELEASE_SIGN" "$APP_BUNDLE" "$BUNDLE_ID" >/dev/null
+elif [[ "$CODESIGN_IDENTITY" != "-" ]]; then
+  TEAM_OU="$(security find-certificate -c "$CODESIGN_IDENTITY" -p 2>/dev/null | openssl x509 -noout -subject 2>/dev/null | sed -n 's/.*OU=\([^,/]*\).*/\1/p' | head -n 1 || true)"
+  if [[ -n "$TEAM_OU" ]]; then
+    REQ="designated => identifier \"$BUNDLE_ID\" and certificate leaf[subject.OU] = \"$TEAM_OU\""
+    codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" -r="$REQ" --timestamp=none "$APP_BUNDLE"
+  else
+    codesign --force --sign "$CODESIGN_IDENTITY" --identifier "$BUNDLE_ID" --timestamp=none "$APP_BUNDLE"
+  fi
+else
+  codesign --force --sign "-" --identifier "$BUNDLE_ID" --timestamp=none "$APP_BUNDLE"
+fi
 codesign --verify --strict "$APP_BUNDLE"
 
 open_app() {

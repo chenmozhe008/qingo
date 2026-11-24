@@ -22,7 +22,8 @@ struct SafetyPolicy: Sendable {
             "Library/Application Support/Shandianshuo",
             "Library/Containers/com.tencent.xinWeChat",
             "Library/Containers/com.tencent.WeWorkMac",
-            "Library/Caches/ms-playwright",
+            "Library/Caches/ms-playwright", "Library/Caches/llama.cpp", "Library/Caches/huggingface",
+            "Library/Mobile Documents", "Library/CloudStorage",
             ".cache/whisper",
             "Library/Developer/Xcode",
             ".ssh", ".aws", ".codex", ".Trash"
@@ -36,27 +37,54 @@ struct SafetyPolicy: Sendable {
         if extraProtectedRoots.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) { return true }
         // A chat app's container stays protected except for the cache folders listed in `ChatCache`.
         if chatCacheRoots.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
-        let allowedInside = ["Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
-                             "Library/Application Support/Shandianshuo/recordings", "Library/Developer/Xcode/DerivedData"]
+        let allowedInside = (["Library/Application Support/Shandianshuo/recordings"]
+            + DeveloperCaches.allowedXcodeSubfolders.map { "Library/Developer/Xcode/\($0)" })
             .map { home.appending(path: $0).path }
-        if allowedInside.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
+        if Self.codexCacheLeaves.contains(where: {
+            let leaf = home.path + "/Library/Application Support/Codex/" + $0
+            return path == leaf || path.hasPrefix(leaf + "/")
+        }) || allowedInside.contains(where: { path == $0 || path.hasPrefix($0 + "/") }) { return false }
         return protectedRoots.contains { protected in
             path == protected.path || path.hasPrefix(protected.path + "/")
         }
+    }
+
+    func hasProtectedDescendant(_ url: URL) -> Bool {
+        let prefix = CanonicalPath.url(url).path + "/"
+        return protectedRoots.contains { $0.path.hasPrefix(prefix) } ||
+            AppUpdateStaging(home: home).protectedChild(of: CanonicalPath.url(url)) != nil
+    }
+
+    private static let codexCacheLeaves = ["Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache",
+                                          "DawnWebGPUCache", "GraphiteDawnCache", "ShaderCache", "GrShaderCache"]
+    private static let ownerManagedStores: [String: String] = [
+        ".cache/uv": "uv 的包存储。部分 Python 环境可能通过符号链接使用其中的文件，请用 uv cache prune 清理。",
+        "Library/Caches/uv": "uv 的包存储。部分 Python 环境可能通过符号链接使用其中的文件，请用 uv cache prune 清理。",
+        ".npm/_npx": "npx 的临时安装。运行中的命令可能依赖其中的包，请用 npm cache npx ls 查看和管理。",
+        ".cache/codex-runtimes": "Codex 的 Node.js 和 Python 运行环境。正在使用的工具可能依赖这里的文件，请通过 Codex 更新。",
+        "Library/pnpm/store": "pnpm 的共享包存储，请用 pnpm store prune 移除未被引用的包。"
+    ]
+
+    func ownerManagedNote(for url: URL) -> String? {
+        if let note = AppUpdateStaging(home: home).note(for: url) { return note }
+        let path = CanonicalPath.url(url).path
+        let prefix = home.path + "/"
+        guard path.hasPrefix(prefix) else { return nil }
+        return Self.ownerManagedStores[String(path.dropFirst(prefix.count))]
     }
 
     func allowedChildren(ofProtectedRoot url: URL) -> [URL]? {
         let path = CanonicalPath.url(url).path
         if extraProtectedRoots.contains(where: { path == $0.path || path.hasPrefix($0.path + "/") }) { return nil }
         if path == home.appending(path: "Library/Application Support/Codex").path {
-            return ["Cache", "Code Cache"].map { url.appending(path: $0) }
+            return Self.codexCacheLeaves.map { url.appending(path: $0) }
         }
         if path == home.appending(path: "Library/Application Support/Shandianshuo").path {
             return [url.appending(path: "recordings")]
         }
-        // Only Xcode's build cache; Archives, device support and the rest stay protected.
+        // Only Xcode's rebuildable caches and debug symbols; Archives and UserData stay protected.
         if path == home.appending(path: "Library/Developer/Xcode").path {
-            return [url.appending(path: "DerivedData")]
+            return DeveloperCaches.allowedXcodeSubfolders.map { url.appending(path: $0) }
         }
         return nil
     }
@@ -90,6 +118,9 @@ struct SafetyPolicy: Sendable {
 
     func reviewDescription(for url: URL, isDirectory: Bool) -> String? {
         guard isDirectory, !isProtected(url) else { return nil }
+        if let note = ownerManagedNote(for: url) {
+            return note
+        }
         if let backup = iosBackup(url) {
             let date = backup.date.map { " \($0.formatted(date: .numeric, time: .omitted))" } ?? ""
             return "「\(backup.device)」的本机备份\(date)。删除后无法用这次备份恢复设备。"
@@ -130,12 +161,33 @@ struct SafetyPolicy: Sendable {
     func cacheDescription(for url: URL, isDirectory: Bool) -> String? {
         guard isDirectory, !isProtected(url) else { return nil }
         if let note = Leftovers.note(for: url) { return note }
+        let path = CanonicalPath.url(url).path
+        let automations = home.path + "/Library/LaunchAgents"
+        guard path != automations, !path.hasPrefix(automations + "/") else { return nil }
+        let updates = AppUpdateStaging(home: home)
+        let canonical = URL(fileURLWithPath: path)
+        guard updates.root(containing: path) == nil, updates.protectedChild(of: canonical) == nil else { return nil }
+        if BrowserCaches.handles(path, home: home) {
+            guard CanonicalPath.isDirect(url), let browser = BrowserCaches.owner(of: URL(fileURLWithPath: path), home: home) else { return nil }
+            return "\(browser.name) 的网页或渲染缓存。退出浏览器后可清理。"
+        }
+        if Self.ownerManagedStores.keys.contains(where: {
+            let root = home.path + "/" + $0
+            return path == root || path.hasPrefix(root + "/")
+        }) { return nil }
+        if path.hasPrefix(home.path + "/Library/Application Support/Codex/"),
+           Self.codexCacheLeaves.contains(where: { path == home.path + "/Library/Application Support/Codex/" + $0 }) {
+            return "Codex 的界面缓存，下次使用时会重新生成。"
+        }
+        if updates.cacheLeaf(canonical) { return "应用的网页或渲染缓存，下次使用时会重新生成。" }
         if let note = chatCacheNotes[CanonicalPath.url(url).path] { return note }
         if let note = CreativeApp.cacheNote(url, home: home) { return note }
         guard !isProject(url), CreativeApp.dataOwner(url, home: home) == nil else { return nil }
         let name = url.lastPathComponent
-        let path = CanonicalPath.url(url).path
 
+        if let devMatch = DeveloperCaches.match(for: url, home: home) {
+            return devMatch.note
+        }
         // Library/Caches is a cache namespace, but only its direct children become actions.
         let libraryCaches = home.appending(path: "Library/Caches").path
         if CanonicalPath.url(url.deletingLastPathComponent()).path == libraryCaches {
@@ -153,20 +205,22 @@ struct SafetyPolicy: Sendable {
             }
             return "应用缓存，下次使用时自动重建。"
         }
-        let appSupportCaches = home.appending(path: "Library/Application Support/Caches").path
-        if CanonicalPath.url(url.deletingLastPathComponent()).path == appSupportCaches,
-           name.hasSuffix("-updater") {
-            return "应用更新时下载的安装包，下次更新时可能需要重新下载。"
-        }
-
         let directCaches = [
             ("Library/Developer/Xcode/DerivedData", "Xcode 的构建缓存和索引，下次打开项目时会重新生成。"),
-            (".cache/uv", "uv 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".cache/pip", "pip 的包缓存，下次安装依赖时可能需要重新下载。"),
             (".npm/_cacache", "npm 的包缓存，下次安装依赖时可能需要重新下载。"),
             ("Library/Application Support/Notion/Partitions/notion/Cache", "Notion 的浏览器缓存，下次打开时自动重建。"),
             ("Library/Application Support/Notion/Partitions/notion/Code Cache", "Notion 的代码缓存，下次打开时自动重建。")
         ]
+        if let ruleMatch = RuleCatalog.match(for: url, home: home) {
+            return ruleMatch.note
+        }
+        if let electronNote = ElectronCaches.cacheDescription(for: url, home: home) {
+            return electronNote
+        }
+        if let sandboxNote = SandboxCaches.note(for: url, home: home) {
+            return sandboxNote
+        }
         if let match = directCaches.first(where: { path == home.appending(path: $0.0).path }) {
             return match.1
         }
@@ -200,17 +254,41 @@ struct SafetyPolicy: Sendable {
         return nil
     }
 
+    /// Stricter whitelist for irreversible direct deletion (`TrashService.directPurge`, bypassing Trash).
+    /// Project-level build artifacts matched by folder name stay on the reversible Trash path.
+    func isDirectPurgeEligible(_ item: ScanItem) -> Bool {
+        guard item.kind == .cache, item.canTrash, decisionNote(for: item) == nil else { return false }
+        let url = CanonicalPath.url(item.url)
+        guard !isProtected(url), !hasProtectedDescendant(url) else { return false }
+        let name = url.lastPathComponent
+        if [".build", "target", "__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".gradle"].contains(name) {
+            return false
+        }
+        if Self.frontEndCaches[name] != nil { return false }
+        if name == "cache", url.deletingLastPathComponent().lastPathComponent == ".next" { return false }
+        if DiagnosticJunk.recognizes(url, home: home) { return true }
+        if ToolVersions(home: home).tool(for: url) != nil { return true }
+        return cacheDescription(for: url, isDirectory: true) != nil
+    }
+
     var quickScanLocations: [URL] {
         let libraryCaches = home.appending(path: "Library/Caches")
-        let cacheChildren = (try? FileManager.default.contentsOfDirectory(at: libraryCaches, includingPropertiesForKeys: [.isDirectoryKey])) ?? []
+        let updateStaging = AppUpdateStaging(home: home)
+        let cacheChildren = ((try? FileManager.default.contentsOfDirectory(at: libraryCaches, includingPropertiesForKeys: [.isDirectoryKey])) ?? [])
+            .flatMap(updateStaging.splitCacheRoot)
         let extra = [
-            ".cache/uv", ".cache/pip", ".npm/_cacache", "Library/Developer/Xcode/DerivedData",
+            ".cache/pip", ".npm/_cacache", "Library/Developer/Xcode/DerivedData",
             "Library/iTunes/iPhone Software Updates", "Library/iTunes/iPad Software Updates", "Library/iTunes/iPod Software Updates",
-            "Library/Application Support/Codex/Cache", "Library/Application Support/Codex/Code Cache",
             "Library/Application Support/Notion/Partitions/notion/Cache",
             "Library/Application Support/Notion/Partitions/notion/Code Cache",
             "Library/Application Support/Notion/Partitions/notion/Service Worker"
-        ].map { home.appending(path: $0) }
+        ].map { home.appending(path: $0) } + Self.ownerManagedStores.keys.map { home.appending(path: $0) }
+          + Self.codexCacheLeaves.map { home.appending(path: "Library/Application Support/Codex/" + $0) }
+          + BrowserCaches.locations(home: home)
+          + DeveloperCaches.locations(home: home)
+          + RuleCatalog.locations(home: home)
+          + ElectronCaches.cacheDirectories(home: home, policy: self)
+          + SandboxCaches.cacheDirectories(home: home)
         // WeChat's and WeCom's rebuildable caches; the rest of their containers is never scanned.
         let chatCaches = chatCacheRoots.map { URL(fileURLWithPath: $0, isDirectory: true) }
         let updaterRoot = home.appending(path: "Library/Application Support/Caches")
@@ -218,7 +296,8 @@ struct SafetyPolicy: Sendable {
         let recordings = home.appending(path: "Library/Application Support/Shandianshuo/recordings")
         let toolData = CreativeApp.dataLocations(home: home).filter { !isProtected($0) }
         let locations = Set(cacheChildren + extra + chatCaches + updaters + [recordings] + toolData).filter {
-            (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
+            CanonicalPath.isDirect($0) &&
+                (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true &&
                 (cacheDescription(for: $0, isDirectory: true) != nil || reviewDescription(for: $0, isDirectory: true) != nil)
         }
         // A parent owns its whole measured subtree; never scan/count the same data twice.
@@ -231,8 +310,16 @@ struct SafetyPolicy: Sendable {
         guard kind == .cache else { return .c }
         let path = CanonicalPath.url(url).path
         let relative = path.hasPrefix(home.path + "/") ? String(path.dropFirst(home.path.count + 1)) : ""
+        if let devMatch = DeveloperCaches.match(for: url, home: home), devMatch.isHighConfidenceA {
+            return .a
+        }
+        if let ruleMatch = RuleCatalog.match(for: url, home: home), ruleMatch.highConfidence {
+            return .a
+        }
+        if ElectronCaches.cacheDescription(for: url, home: home) != nil {
+            return .a
+        }
         if relative.hasPrefix(".cache/") || relative == ".npm/_cacache" || relative == "Library/Developer/Xcode/DerivedData" ||
-            (relative.hasPrefix("Library/Application Support/Caches/") && relative.hasSuffix("-updater")) ||
             relative == "Library/Caches/Homebrew" ||
             relative.hasPrefix("Library/Application Support/Adobe/Common/") ||
             relative.hasPrefix("Library/Caches/Adobe/After Effects/") {

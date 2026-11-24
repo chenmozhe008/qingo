@@ -5,16 +5,39 @@ import Darwin
 /// Paths under the home folder are stored as "~/…", so the log carries no user name.
 enum CleanupLog {
     struct Entry: Codable, Equatable {
+        enum Disposition: String, Codable, Equatable {
+            case trashed
+            case purged
+            case emptiedTrash
+        }
+
         struct Moved: Codable, Equatable {
             let path: String
             let bytes: Int64
         }
 
         let date: Date
-        /// "清理" / "卸载 微信" / "清理残留"
+        /// "清理" / "卸载 微信" / "清理残留" / "直接清理缓存" / "清空废纸篓"
         let action: String
         let moved: [Moved]
         let failedCount: Int
+        var failureReasons: [String: Int]?
+        var volumes: [CleanupVolumeReading]?
+        var disposition: Disposition?
+        var summaryCount: Int?
+        var summaryBytes: Int64?
+
+        var resolvedDisposition: Disposition { disposition ?? .trashed }
+        var effectiveCount: Int { moved.isEmpty ? (summaryCount ?? 0) : moved.count }
+        var effectiveBytes: Int64 {
+            if !moved.isEmpty {
+                return moved.reduce(Int64(0)) { sum, item in
+                    let add = sum.addingReportingOverflow(item.bytes)
+                    return add.overflow ? Int64.max : add.partialValue
+                }
+            }
+            return summaryBytes ?? 0
+        }
     }
 
     static let limit = 10
@@ -26,13 +49,33 @@ enum CleanupLog {
         return (try? JSONDecoder().decode([Entry].self, from: data)) ?? []
     }
 
-    /// Newest first, at most `limit` entries. Nothing moved, nothing recorded.
-    static func record(_ action: String, moved: [(url: URL, bytes: Int64)], failedCount: Int, now: Date = Date()) {
-        guard !moved.isEmpty else { return }
+    /// Newest first, at most `limit` entries.
+    static func record(_ action: String, moved: [(url: URL, bytes: Int64)], failedCount: Int,
+                       now: Date = Date(), failures: [CleanupReport.Failure] = [], volumes: [CleanupVolumeReading] = [],
+                       disposition: Entry.Disposition = .trashed, summaryCount: Int? = nil, summaryBytes: Int64? = nil) {
+        let hasSummary = (summaryCount ?? 0) > 0 || (summaryBytes ?? 0) > 0
+        guard !moved.isEmpty || !failures.isEmpty || hasSummary else { return }
+        let reasons = Dictionary(grouping: failures, by: \.reason).mapValues(\.count)
         let entry = Entry(date: now, action: action,
-                          moved: moved.map { Entry.Moved(path: display($0.url), bytes: $0.bytes) }, failedCount: failedCount)
+                          moved: moved.map { Entry.Moved(path: display($0.url), bytes: $0.bytes) }, failedCount: failedCount,
+                          failureReasons: reasons.isEmpty ? nil : reasons, volumes: volumes.isEmpty ? nil : volumes,
+                          disposition: disposition, summaryCount: summaryCount, summaryBytes: summaryBytes)
         let entries = Array(([entry] + load()).prefix(limit))
         if let data = try? JSONEncoder().encode(entries) { try? data.write(to: file, options: .atomic) }
+    }
+
+    static func recreatedCacheCount(in items: [ScanItem], entries: [Entry] = load(), now: Date = Date()) -> Int {
+        guard let entry = entries.first(where: { $0.action == "清理" && !$0.moved.isEmpty }),
+              now.timeIntervalSince(entry.date) < 7 * 86_400 else { return 0 }
+        let moved = Set(entry.moved.map(\.path))
+        return items.count { item in
+            guard item.kind == .cache, item.canTrash, moved.contains(display(item.url)) else { return false }
+            var info = stat()
+            guard lstat(item.url.path, &info) == 0,
+                  FileIdentity(device: UInt64(info.st_dev), inode: UInt64(info.st_ino)) == item.identity else { return false }
+            let created = TimeInterval(info.st_birthtimespec.tv_sec) + TimeInterval(info.st_birthtimespec.tv_nsec) / 1_000_000_000
+            return created > entry.date.timeIntervalSince1970
+        }
     }
 
     static func display(_ url: URL) -> String {
@@ -63,6 +106,9 @@ enum Diagnostics {
             let time = last.date.formatted(.dateTime.year().month().day().hour().minute())
             lines.append("最近一次\(last.action)：\(time)，移到废纸篓 \(last.moved.count) 项，共 \(ByteFormat.string(bytes))"
                          + (last.failedCount > 0 ? "，\(last.failedCount) 项未清理" : ""))
+            for reason in (last.failureReasons ?? [:]).sorted(by: { $0.key < $1.key }) {
+                lines.append("  \(reason.value) 项未清理，\(reason.key)")
+            }
             for item in last.moved.sorted(by: { $0.bytes > $1.bytes }).prefix(listedItems) {
                 lines.append("  \(item.path)　\(ByteFormat.string(item.bytes))")
             }

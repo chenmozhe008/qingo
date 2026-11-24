@@ -80,10 +80,9 @@ enum Theme {
     }
 }
 
-/// Soft colour field behind the glass cards; Liquid Glass needs something to refract, a flat fill looks like plain white panels.
+/// Soft neutral colour field behind the glass cards; stays crisp in both light and dark mode (never tints the window yellow).
 struct Backdrop: View {
     @Environment(\.colorScheme) private var scheme
-    /// Low on space: the field warms, like Weather's sky follows the weather. Plenty of room stays a calm blue.
     var warm = false
 
     var body: some View {
@@ -92,11 +91,11 @@ struct Backdrop: View {
             if #available(macOS 15.0, *) {
                 MeshGradient(width: 3, height: 3,
                              points: [[0, 0], [0.5, 0], [1, 0], [0, 0.5], [0.55, 0.45], [1, 0.5], [0, 1], [0.5, 1], [1, 1]],
-                             colors: (scheme == .dark ? (warm ? Self.darkWarm : Self.dark) : (warm ? Self.lightWarm : Self.light))
+                             colors: (scheme == .dark ? Self.dark : Self.light)
                                 .map { Color(red: $0[0], green: $0[1], blue: $0[2]) })
-                    .opacity(0.58)
+                    .opacity(0.55)
             } else {
-                Theme.base.opacity(0.9)
+                Theme.base.opacity(0.92)
             }
         }
         .ignoresSafeArea()
@@ -145,6 +144,26 @@ extension View {
                 .overlay(shape.fill(highlighted ? Theme.blue.opacity(0.08) : .clear).allowsHitTesting(false))
                 .overlay(shape.strokeBorder(highlighted ? Theme.blue.opacity(0.45) : Theme.line, lineWidth: 1))
         }
+    }
+
+    /// Clean Apple System Settings–style Inset Grouped Card container (zero nested box-in-box borders).
+    func appleGroupedCard(radius: CGFloat = 14) -> some View {
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
+        return self
+            .background(shape.fill(Theme.panel))
+            .overlay(shape.strokeBorder(Theme.line, lineWidth: 1))
+            .clipShape(shape)
+    }
+}
+
+/// 1px hairline divider aligned with inset list content.
+struct InsetHairlineDivider: View {
+    var leading: CGFloat = 50
+    var body: some View {
+        Rectangle()
+            .fill(Theme.line)
+            .frame(height: 1)
+            .padding(.leading, leading)
     }
 }
 
@@ -412,6 +431,45 @@ struct BigBytes: View {
     }
 }
 
+/// Animated dual-arc ring used while scanning (matches the original smooth 30fps outer + counter-rotating inner arc).
+struct ScanningRing: View {
+    var progress: Double? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        GeometryReader { proxy in
+            let size = min(proxy.size.width, proxy.size.height)
+            let line = max(18, min(30, size * 0.105))
+            TimelineView(.animation(minimumInterval: 1.0 / 30, paused: reduceMotion)) { context in
+                let time = reduceMotion ? 0 : context.date.timeIntervalSinceReferenceDate
+                ZStack {
+                    Circle().stroke(Theme.blue.opacity(0.12), lineWidth: line)
+                    Circle()
+                        .trim(from: 0, to: 0.32)
+                        .stroke(
+                            AngularGradient(colors: [Theme.blue.opacity(0), Theme.blue.opacity(0.55), Theme.blue],
+                                            center: .center, startAngle: .degrees(0), endAngle: .degrees(115)),
+                            style: StrokeStyle(lineWidth: line, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(time * 200))
+                        .shadow(color: Theme.blue.opacity(0.3), radius: 8)
+                    Circle()
+                        .trim(from: 0, to: 0.18)
+                        .stroke(
+                            AngularGradient(colors: [Theme.cyan.opacity(0), Theme.cyan],
+                                            center: .center, startAngle: .degrees(0), endAngle: .degrees(65)),
+                            style: StrokeStyle(lineWidth: 5, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-time * 120))
+                        .padding(line + 4)
+                }
+                .padding(line / 2)
+                .frame(width: size, height: size)
+            }
+        }
+    }
+}
+
 struct SpaceRing: View {
     let total: Int64
     let free: Int64
@@ -449,6 +507,8 @@ struct SpaceRing: View {
                     Text(low ? "剩余空间较少" : "共 \(ByteFormat.string(total))")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(low ? Theme.amber : Theme.ink2)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.78)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 4)
                         .background(Capsule().fill(low ? Theme.amber.opacity(0.14) : Theme.fill(0.06)))

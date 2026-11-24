@@ -464,7 +464,8 @@ struct AppUninstaller: Sendable {
         // Ids a recognized, installed tool is known to use besides its main bundle id.
         let toolIDs = Set(CreativeApp.allCases.filter(\.isInstalled).flatMap { $0.apps + $0.folders }.map { $0.lowercased() })
         let folders: [(String, String)] = [("Application Support", ""), ("Caches", ""), ("Preferences", ".plist"),
-                                           ("Saved Application State", ".savedState"), ("HTTPStorages", ""), ("WebKit", ""), ("Logs", "")]
+                                           ("Saved Application State", ".savedState"), ("HTTPStorages", ""), ("WebKit", ""),
+                                           ("Logs", ""), ("Containers", "")]
         var byID: [String: [(URL, TraceKind)]] = [:]
         for (folder, suffix) in folders {
             let directory = library.appending(path: folder)
@@ -474,18 +475,33 @@ struct AppUninstaller: Sendable {
                     guard name.hasSuffix(suffix) else { continue }
                     id = String(name.dropLast(suffix.count))
                 }
+                if folder == "Containers", !SandboxCaches.isEligibleContainerName(id) { continue }
                 if folder == "HTTPStorages", id.hasSuffix(".binarycookies") { id = String(id.dropLast(".binarycookies".count)) }
                 guard Self.looksLikeBundleID(id), !vendors.contains(Self.vendor(id)), !toolIDs.contains(id.lowercased()),
                       !Self.sdkVendors.contains(Self.vendor(id)) else { continue }
                 let url = directory.appending(path: name)
                 guard CreativeApp.dataOwner(url, home: policy.home) == nil else { continue }
                 let kind: TraceKind = folder == "Caches" ? .caches : folder == "Logs" ? .logs : folder == "HTTPStorages" || folder == "WebKit" ? .web
-                    : folder == "Application Support" ? .support : .preferences
+                    : (folder == "Application Support" || folder == "Containers") ? .support : .preferences
                 byID[id, default: []].append((url, kind))
             }
         }
+        // Also collect orphaned LaunchAgents whose target binary no longer exists.
+        let agentsDir = library.appending(path: "LaunchAgents")
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: agentsDir.path)) ?? [] where name.hasSuffix(".plist") {
+            let url = agentsDir.appending(path: name)
+            let id = String(name.dropLast(".plist".count))
+            guard CanonicalPath.isDirect(url),
+                  Self.looksLikeBundleID(id), !vendors.contains(Self.vendor(id)), !toolIDs.contains(id.lowercased()),
+                  !Self.sdkVendors.contains(Self.vendor(id)),
+                  let dict = NSDictionary(contentsOf: url) as? [String: Any] else { continue }
+            let exec = (dict["Program"] as? String) ?? (dict["ProgramArguments"] as? [String])?.first
+            if let exec, exec.hasPrefix("/"), !FileManager.default.fileExists(atPath: exec) {
+                byID[id, default: []].append((url, .background))
+            }
+        }
         return byID.compactMap { id, candidates -> OrphanGroup? in
-            guard candidates.contains(where: { [.support, .caches].contains($0.1) || $0.0.pathExtension == "savedState" }) else { return nil }
+            guard candidates.contains(where: { [.support, .caches, .background].contains($0.1) || $0.0.pathExtension == "savedState" }) else { return nil }
             // LaunchServices knows apps outside /Applications too (Setapp, external disks, other folders).
             guard !Self.isRegistered(id) else { return nil }
             let traces = measured(candidates)
@@ -540,6 +556,14 @@ struct AppUninstaller: Sendable {
     }
 }
 
+struct UserLaunchAgent: Identifiable, Sendable {
+    let url: URL
+    let label: String
+    let program: String?
+    let orphaned: Bool
+    var id: URL { url }
+}
+
 /// State of the "卸载应用" page.
 @MainActor
 final class UninstallStore: ObservableObject {
@@ -555,6 +579,10 @@ final class UninstallStore: ObservableObject {
     /// Selected app, or nil when the leftovers of removed apps are shown.
     @Published var selectedID: URL?
     @Published var showOrphans = false
+    @Published var showLaunchAgents = false
+    @Published private(set) var launchAgents: [UserLaunchAgent] = []
+    @Published var pendingLaunchAgent: UserLaunchAgent?
+    @Published private(set) var removingLaunchAgentID: URL?
     /// Whether the merged "相关文件" row of the selected app is opened up.
     @Published var showRelated = false
     @Published var showToolData = false
@@ -647,6 +675,7 @@ final class UninstallStore: ObservableObject {
         isLoading = true
         if apps.isEmpty { apps = Self.loadCache() }
         let uninstaller = self.uninstaller
+        let home = policy.home
         Task.detached(priority: .userInitiated) { [weak self] in
             let fresh = uninstaller.installedApps()
             await MainActor.run {
@@ -675,9 +704,11 @@ final class UninstallStore: ObservableObject {
                 }
             }
             let orphans = uninstaller.orphans(installed: fresh)
+            let agents = Self.scanUserLaunchAgents(home: home)
             await MainActor.run {
                 guard let self else { return }
                 self.orphans = orphans
+                self.launchAgents = agents
                 // The rules that find these are strict enough to clean them without asking.
                 self.pickedOrphans = Set(orphans.filter { !SensitiveApps.matches($0.id) }.map(\.id))
                 self.isLoading = false
@@ -723,8 +754,31 @@ final class UninstallStore: ObservableObject {
         if let data = try? JSONEncoder().encode(apps) { try? data.write(to: cacheURL, options: .atomic) }
     }
 
+    func applyUnifiedOrphans(apps detectedApps: [InstalledApp]?, orphans detectedOrphans: [OrphanGroup], agents: [UserLaunchAgent]) {
+        guard !isWorking else { return }
+        if let detectedApps, apps.isEmpty {
+            apps = detectedApps
+            Self.saveCache(detectedApps)
+        }
+        orphans = detectedOrphans
+        pickedOrphans = Set(detectedOrphans.filter { !SensitiveApps.matches($0.id) }.map(\.id))
+        launchAgents = agents
+    }
+
+    func applyRemovedOrphans(movedPaths: Set<String>) {
+        isWorking = false
+        guard !movedPaths.isEmpty else { return }
+        orphans = orphans?.compactMap { group in
+            let left = group.traces.filter { !movedPaths.contains($0.url.path) }
+            return left.isEmpty ? nil : OrphanGroup(id: group.id, traces: left)
+        }
+        let remainingIDs = Set((orphans ?? []).map(\.id))
+        pickedOrphans.formIntersection(remainingIDs)
+    }
+
     func select(_ app: InstalledApp) {
         showOrphans = false
+        showLaunchAgents = false
         showRelated = false
         showToolData = false
         selectedID = app.id
@@ -740,10 +794,89 @@ final class UninstallStore: ObservableObject {
 
     func selectOrphans() {
         showOrphans = true
+        showLaunchAgents = false
         selectedID = nil
         report = nil
         message = nil
         pickedOrphans = Set((orphans ?? []).filter { !SensitiveApps.matches($0.id) }.map(\.id))
+    }
+
+    func selectLaunchAgents() {
+        showLaunchAgents = true
+        showOrphans = false
+        selectedID = nil
+        report = nil
+        message = nil
+        if launchAgents.isEmpty {
+            let home = policy.home
+            Task.detached(priority: .utility) { [weak self] in
+                let found = Self.scanUserLaunchAgents(home: home)
+                await MainActor.run { self?.launchAgents = found }
+            }
+        }
+    }
+
+    func removeLaunchAgent(_ agent: UserLaunchAgent) {
+        guard !isWorking, removingLaunchAgentID == nil else { return }
+        pendingLaunchAgent = nil
+        removingLaunchAgentID = agent.id
+        let uid = getuid()
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let bootout = Process()
+            bootout.executableURL = URL(fileURLWithPath: "/bin/launchctl")
+            bootout.arguments = ["bootout", "gui/\(uid)", agent.url.path]
+            var bootoutOK = false
+            do {
+                try bootout.run()
+                bootout.waitUntilExit()
+                bootoutOK = (bootout.terminationStatus == 0)
+            } catch {}
+
+            var movedOK = false
+            do {
+                var resulting: NSURL?
+                try FileManager.default.trashItem(at: agent.url, resultingItemURL: &resulting)
+                movedOK = true
+            } catch {}
+
+            await MainActor.run {
+                guard let self else { return }
+                self.removingLaunchAgentID = nil
+                if movedOK {
+                    self.launchAgents.removeAll { $0.id == agent.id }
+                    CleanupLog.record("后台启动项清理", moved: [(agent.url, 4_096)], failedCount: 0)
+                    self.message = bootoutOK
+                        ? "已停用并将启动项「\(agent.label)」移到废纸篓。"
+                        : "已将启动项「\(agent.label)」移到废纸篓（原进程未运行或需重新登录后生效）。"
+                } else {
+                    self.message = "未能移除「\(agent.label)」，可能已被系统保护。"
+                }
+            }
+        }
+    }
+
+    nonisolated static func scanUserLaunchAgents(home: URL) -> [UserLaunchAgent] {
+        let dir = home.appending(path: "Library/LaunchAgents")
+        let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
+        var items: [UserLaunchAgent] = []
+        for file in files where file.pathExtension.lowercased() == "plist" {
+            guard CanonicalPath.isDirect(file),
+                  let data = try? Data(contentsOf: file),
+                  let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+                  let label = dict["Label"] as? String else { continue }
+            let program = (dict["Program"] as? String) ?? (dict["ProgramArguments"] as? [String])?.first
+            let orphaned: Bool
+            if let program, !program.isEmpty {
+                orphaned = !FileManager.default.fileExists(atPath: program)
+            } else {
+                orphaned = false
+            }
+            items.append(UserLaunchAgent(url: file, label: label, program: program, orphaned: orphaned))
+        }
+        return items.sorted {
+            if $0.orphaned != $1.orphaned { return $0.orphaned }
+            return $0.label.localizedStandardCompare($1.label) == .orderedAscending
+        }
     }
 
     private func pickDefaults(for app: InstalledApp) {
@@ -828,6 +961,37 @@ final class UninstallStore: ObservableObject {
                     }
                 }
             }
+        }
+    }
+
+    /// Cleans only the `.caches` traces of an installed app while leaving the app and user preferences intact.
+    func clearAppCaches(of app: InstalledApp) {
+        guard !isWorking else { return }
+        let cacheTraces = (traces[app.id] ?? []).filter { $0.kind == .caches }
+        guard !cacheTraces.isEmpty else { return }
+        guard !isRunning(app) else {
+            message = "\(app.name) 正在运行，请先退出再清理缓存"
+            return
+        }
+        isWorking = true
+        report = nil
+        message = nil
+        let uninstaller = self.uninstaller
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let result = Self.move(cacheTraces, with: uninstaller)
+            await MainActor.run {
+                guard let self else { return }
+                self.isWorking = false
+                self.undoable = result.moved
+                self.undoAppOriginal = nil
+                let movedPaths = Set(result.moved.map(\.original.path))
+                let bytes = cacheTraces.filter { movedPaths.contains($0.url.path) }.reduce(0) { $0 + $1.bytes }
+                self.report = CleanupReport(movedCount: result.moved.count, movedBytes: bytes, failures: result.failures)
+                CleanupLog.record("清理 \(app.name) 缓存", moved: result.moved.map { movedEntry in
+                    (movedEntry.original, cacheTraces.first { $0.url == movedEntry.original }?.bytes ?? 0)
+                }, failedCount: result.failures.count)
+            }
+            await self?.measure(app, with: uninstaller)
         }
     }
 

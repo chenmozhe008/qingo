@@ -24,31 +24,6 @@ enum AppInfo {
         return "小清 Qingo \(version)（\(build)），macOS \(os)"
     }
 
-    struct Release: Identifiable {
-        let id: String
-        let notes: [String]
-    }
-
-    /// Parsed from the bundled CHANGELOG.md ("## 版本 · 日期" headings, "- " bullets), the single source of the history.
-    static var releases: [Release] {
-        guard let url = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md"),
-              let text = try? String(contentsOf: url, encoding: .utf8) else { return [] }
-        var releases: [Release] = []
-        var title: String?
-        var notes: [String] = []
-        for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix("## ") {
-                if let title { releases.append(Release(id: title, notes: notes)) }
-                title = String(line.dropFirst(3))
-                notes = []
-            } else if line.hasPrefix("- ") {
-                notes.append(String(line.dropFirst(2)))
-            }
-        }
-        if let title { releases.append(Release(id: title, notes: notes)) }
-        return releases
-    }
-
     /// Matches LSMinimumSystemVersion and the arm64-only build.
     static let requirements = "macOS 14 Sonoma 及以上，Apple 芯片（M1 及更新）的 Mac。扫描范围取决于已授予的文件访问权限"
 
@@ -369,61 +344,104 @@ struct AboutView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
-    // MARK: Changelog
+    // MARK: Changelog (aligned with Shandian Download ReleaseHistory card flow)
+
+    private var mergedReleases: [HistoryEntry] {
+        let text = Bundle.main.url(forResource: "CHANGELOG", withExtension: "md")
+            .flatMap { try? String(contentsOf: $0, encoding: .utf8) } ?? ""
+        return ReleaseHistory.merge(
+            local: ReleaseHistory.local(text, includeDevelopment: AppInfo.isDev),
+            online: store.onlineReleases
+        )
+    }
 
     private var changelog: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(AppInfo.releases.enumerated()), id: \.element.id) { index, release in
-                let parts = release.id.components(separatedBy: " · ")
-                let current = index == 0
-                HStack(alignment: .top, spacing: 14) {
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text("v\(parts.first ?? release.id)")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(current ? Color.white : Theme.ink)
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 3)
-                            .background(Capsule().fill(current ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.fill(0.08))))
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(spacing: 10) {
+                Button(store.loadingReleaseHistory ? "正在获取…" : "刷新发布记录") {
+                    store.loadReleaseHistory()
+                }
+                .buttonStyle(ToolbarButtonStyle(tinted: false))
+                .disabled(store.loadingReleaseHistory)
 
-                        if parts.count > 1 {
-                            Text(parts[1]).font(.system(size: 11.5)).foregroundStyle(Theme.ink3)
-                        }
-                    }
-                    .frame(width: 100, alignment: .trailing)
-                    ZStack(alignment: .top) {
-                        if index < AppInfo.releases.count - 1 {
-                            Rectangle().fill(Theme.fill(0.1)).frame(width: 2).padding(.top, 10)
-                        }
-                        Circle()
-                            .fill(current ? Theme.cyan : Theme.slate)
-                            .frame(width: 10, height: 10)
-                            .shadow(color: current ? Theme.cyan : .clear, radius: 6)
-                            .padding(.top, 6)
-                    }
-                    .frame(width: 12)
-                    VStack(alignment: .leading, spacing: 6) {
-                        if current {
-                            Text("当前版本")
-                                .font(.system(size: 11.5, weight: .medium))
-                                .foregroundStyle(Theme.green)
+                Spacer()
+
+                Link(destination: URL(string: "https://github.com/chenmozhe008/qingo/releases")!) {
+                    Label("GitHub 发布页", systemImage: "arrow.up.right")
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(Theme.blue)
+                }
+            }
+
+            if let message = store.releaseHistoryMessage {
+                Text(message)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Theme.ink2)
+            }
+
+            ForEach(Array(mergedReleases.enumerated()), id: \.element.id) { index, release in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack(spacing: 8) {
+                        Text("v\(release.version)")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .frame(height: 24)
+                            .background(Capsule().fill(Theme.blueFill))
+
+                        if index == 0 {
+                            Text("最新")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(Theme.blue)
                                 .padding(.horizontal, 8)
-                                .padding(.vertical, 2)
-                                .background(Capsule().fill(Theme.green.opacity(0.12)))
+                                .frame(height: 22)
+                                .background(Capsule().strokeBorder(Theme.blue, lineWidth: 1))
                         }
+
+                        if release.isDevelopment {
+                            Text("开发版")
+                                .font(.system(size: 11.5, weight: .semibold))
+                                .foregroundStyle(Theme.ink2)
+                                .padding(.horizontal, 8)
+                                .frame(height: 22)
+                                .background(Capsule().fill(Theme.fill(0.08)))
+                                .help("本机修改过、尚未公开发布的版本")
+                        }
+
+                        Spacer()
+
+                        if let page = release.page {
+                            Link("发布页", destination: page)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(Theme.blue)
+                        }
+                        if !release.date.isEmpty {
+                            Text(release.date)
+                                .font(.system(size: 12))
+                                .foregroundStyle(Theme.ink3)
+                                .monospacedDigit()
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 7) {
                         ForEach(release.notes, id: \.self) { note in
                             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                                Text("•").foregroundStyle(Theme.ink3)
+                                Circle().fill(Theme.blue).frame(width: 5, height: 5).offset(y: -2)
                                 Text(note)
                                     .font(.system(size: 13))
-                                    .foregroundStyle(current ? Theme.ink : Theme.ink2)
+                                    .foregroundStyle(index == 0 ? Theme.ink : Theme.ink2)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
-                    .padding(.bottom, 22)
-                    Spacer(minLength: 0)
                 }
+                .padding(16)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .appleGroupedCard(radius: 14)
             }
+        }
+        .onAppear {
+            store.loadReleaseHistory()
         }
     }
 

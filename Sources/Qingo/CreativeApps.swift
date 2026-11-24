@@ -178,7 +178,7 @@ struct CreativeApp: Hashable, Sendable, Identifiable {
     static let claudeCode = CreativeApp("claude-code", "Claude Code", .aiCode, folders: ["claude-cli-nodejs"], roots: [".claude"],
                                          cleanHow: "对话记录位于 ~/.claude/projects；调小 ~/.claude/settings.json 中的 cleanupPeriodDays，Claude Code 会自动删除更早的对话",
                                          iconApp: "com.anthropic.claudefordesktop")
-    static let codex = CreativeApp("codex", "Codex", .aiCode, apps: ["com.openai.codex"], folders: ["Codex", "com.openai.codex"], caches: [".cache/codex-runtimes"])
+    static let codex = CreativeApp("codex", "Codex", .aiCode, apps: ["com.openai.codex"], folders: ["Codex", "com.openai.codex"], roots: [".cache/codex-runtimes"])
     static let geminiCLI = CreativeApp("gemini-cli", "Gemini CLI", .aiCode, roots: [".gemini"])
     static let opencode = CreativeApp("opencode", "OpenCode", .aiCode, roots: [".opencode", ".local/share/opencode"])
     static let openclaw = CreativeApp("openclaw", "OpenClaw", .aiCode, roots: [".openclaw"])

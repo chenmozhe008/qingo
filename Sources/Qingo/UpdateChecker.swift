@@ -71,7 +71,7 @@ final class UpdateChecker: ObservableObject {
         var request = URLRequest(url: Self.latestAPI, timeoutInterval: 15)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         let release: Release
-        if let (data, response) = try? await Self.apiData(request),
+        if let (data, response) = try? await Self.fetchGitHubData(request),
            (response as? HTTPURLResponse)?.statusCode ?? 200 == 200,
            let parsed = Self.parse(data) {
             release = parsed
@@ -91,7 +91,7 @@ final class UpdateChecker: ObservableObject {
     }
 
     /// 先按系统设置走，失败或被限流时直连再试一次：代理节点多人共用，GitHub 匿名额度经常用完
-    private nonisolated static func apiData(_ request: URLRequest) async throws -> (Data, URLResponse) {
+    nonisolated static func fetchGitHubData(_ request: URLRequest) async throws -> (Data, URLResponse) {
         var firstError: Error?
         do {
             let result = try await URLSession.shared.data(for: request)

@@ -2,6 +2,18 @@ import Foundation
 import Darwin
 
 enum CanonicalPath {
+    /// Accept the standard macOS aliases used by Foundation, but reject linked cleanup targets and parents.
+    static func isDirect(_ input: URL) -> Bool {
+        let path = input.path
+        guard input.isFileURL, path.hasPrefix("/"),
+              !path.split(separator: "/").contains(where: { $0 == "." || $0 == ".." }) else { return false }
+        let aliases = ["/var", "/tmp", "/etc"]
+        let expected = aliases.contains { path == $0 || path.hasPrefix($0 + "/") } ? "/private" + path : path
+        guard let resolved = realpath(path, nil) else { return false }
+        defer { free(resolved) }
+        return String(cString: resolved) == expected
+    }
+
     static func url(_ input: URL) -> URL {
         guard let pointer = realpath(input.path, nil) else { return input.standardizedFileURL }
         defer { free(pointer) }

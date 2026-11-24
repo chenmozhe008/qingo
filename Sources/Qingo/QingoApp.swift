@@ -45,9 +45,10 @@ struct QingoApp: App {
             CommandMenu("扫描") {
                 Button("选择文件夹…") { store.chooseFolder() }
                     .keyboardShortcut("o", modifiers: .command)
-                Button("重新扫描") { store.scan() }
+                Button("重新扫描") { store.scanOverview() }
                     .keyboardShortcut("r", modifiers: .command)
                 Divider()
+                Button("最近的清理记录…") { store.openCleanupHistory() }
                 Button(store.ignoredPaths.isEmpty ? "恢复已忽略的项目" : "恢复已忽略的项目（\(store.ignoredPaths.count) 项）") { store.restoreIgnored() }
                     .disabled(store.ignoredPaths.isEmpty)
             }

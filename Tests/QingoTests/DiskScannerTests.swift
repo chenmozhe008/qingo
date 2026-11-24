@@ -35,7 +35,7 @@ struct DiskScannerTests {
         #expect(full.items.contains { $0.url.path == item.url.path && $0.kind == .review && $0.bytes == 128 })
     }
 
-    @Test func updaterIsAAndNotionOfflineCacheIsC() throws {
+    @Test func updaterAndNotionOfflineCacheAreReadOnly() throws {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let updater = root.appending(path: "Library/Application Support/Caches/example-updater")
@@ -45,7 +45,7 @@ struct DiskScannerTests {
             try writeSparse(folder.appending(path: "data"), bytes: 50_000_000)
         }
         let result = try DiskScanner(policy: SafetyPolicy(home: root)).scanKnownCaches()
-        #expect(result.items.contains { $0.url.path == CanonicalPath.url(updater).path && $0.risk == .a && $0.canTrash })
+        #expect(result.items.contains { $0.url.path == CanonicalPath.url(updater).path && $0.risk == .c && !$0.canTrash })
         #expect(result.items.contains { $0.url.path == CanonicalPath.url(offline).path && $0.risk == .c && !$0.canTrash })
     }
 
@@ -104,7 +104,7 @@ struct DiskScannerTests {
         let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let runtime = root.appending(path: ".cache/codex-runtimes")
-        let browser = root.appending(path: "Library/Caches/Microsoft Edge")
+        let browser = root.appending(path: "Library/Caches/Microsoft Edge/Default/Cache")
         let appleCache = root.appending(path: "Library/Caches/com.apple.example")
         let protected = root.appending(path: "Library/Caches/ms-playwright")
         let codexData = root.appending(path: "Library/Application Support/Codex/sessions")
@@ -118,6 +118,7 @@ struct DiskScannerTests {
         #expect(result.isQuickScan)
         #expect(Set(result.items.map { $0.url.path }) == Set([runtime, browser, codexCache].map { CanonicalPath.url($0).path }))
         #expect(result.totalBytes == 300)
+        #expect(result.items.first { $0.url.path == CanonicalPath.url(runtime).path }?.canTrash == false)
         let full = try DiskScanner(policy: policy).scan(root)
         #expect(full.items.contains { $0.url.path == CanonicalPath.url(codexCache).path && $0.kind == .cache })
         #expect(!full.items.contains { $0.url.path == CanonicalPath.url(codexData).path })
@@ -143,7 +144,10 @@ struct DiskScannerTests {
         store.selectAllEligible()
         #expect(store.selectedCleanupItems.count == 1)
         #expect(store.selectedCleanupItems.first?.url.path == CanonicalPath.url(build).path)
-        #expect(store.selectedCleanupBytes == 128)
+        let cached = try #require(store.result?.items.first { $0.kind == .cache })
+        #expect(cached.bytes == 128)
+        #expect(store.selectedCleanupBytes == cached.allocatedBytes)
+        #expect(store.selectedCleanupBytes >= 128)
         let protectedProject = try #require(store.result?.items.first { $0.kind == .project })
         store.setCleanupSelected(protectedProject, selected: true)
         #expect(store.selectedCleanupItems.count == 1)

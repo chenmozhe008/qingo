@@ -6,7 +6,7 @@ import Foundation
 struct SpaceMap: Codable, Sendable {
     enum Section: String, Codable, Sendable { case decide, fixed }
     /// 块上的按钮把人带到哪里；nil 表示只显示大小
-    enum Action: String, Codable, Sendable { case uninstall, largeFiles, chat, dev }
+    enum Action: String, Codable, Sendable { case uninstall, largeFiles, chat, dev, softwareUpdate, trash }
 
     struct Block: Codable, Sendable, Identifiable {
         let id: String
@@ -22,6 +22,13 @@ struct SpaceMap: Codable, Sendable {
     let available: Int64
     /// 不含「其他」：其他＝已用 − 各块 − 可直接清理，显示时再算（可清理的随扫描变）
     let blocks: [Block]
+
+    struct TrashOccupancy: Codable, Sendable {
+        let bytes: Int64?
+    }
+
+    var trashOccupancy: TrashOccupancy?
+    var sharedBrowserCopies: Leftovers.SharedCopies?
 
     var used: Int64 { max(total - available, 0) }
 
@@ -108,10 +115,10 @@ struct SpaceMapper: Sendable {
                             section: .decide, action: .chat))
 
         // 废纸篓：清空后才腾出空间，单独列出提醒（小清不替用户清空）
-        let trash = Self.size(of: home.appending(path: ".Trash"))
-        if trash >= 500_000_000 {
-            blocks.append(.init(id: "trash", title: "废纸篓", bytes: trash, note: "清空后才会腾出空间",
-                                section: .decide, action: nil))
+        let trashOccupancy = trashOccupancyForHome()
+        if let trash = trashOccupancy.bytes, trash > 0 {
+            blocks.append(.init(id: "trash", title: "废纸篓", bytes: trash, note: "仍占用磁盘空间，可在访达中查看。",
+                                section: .decide, action: .trash))
         }
 
         // 开发环境：个人文件夹里的隐藏目录（语言环境、包缓存、命令行工具），加上 Homebrew
@@ -160,23 +167,17 @@ struct SpaceMapper: Sendable {
                                 section: .fixed, action: nil))
         }
 
-        return SpaceMap(measuredAt: Date(), total: total, available: available, blocks: blocks)
+        return SpaceMap(measuredAt: Date(), total: total, available: available, blocks: blocks,
+                        trashOccupancy: trashOccupancy, sharedBrowserCopies: wholeMac ? Leftovers.sharedBrowserCopies() : nil)
     }
 
-    /// 已分配空间；不跟随符号链接，读不了的跳过
+    private func trashOccupancyForHome() -> SpaceMap.TrashOccupancy {
+        SpaceMap.TrashOccupancy(bytes: DirectoryOccupancy.bytes(at: home.appending(path: ".Trash"), missingIsEmpty: true))
+    }
+
+    /// 已分配空间（底层 `getattrlistbulk` 批量读取，不跟随符号链接，硬链接去重，读不了的跳过）
     static func size(of url: URL) -> Int64 {
-        let keys: [URLResourceKey] = [.isRegularFileKey, .totalFileAllocatedSizeKey, .isSymbolicLinkKey]
-        if let values = try? url.resourceValues(forKeys: Set(keys)), values.isRegularFile == true {
-            return Int64(values.totalFileAllocatedSize ?? 0)
-        }
-        guard let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: keys, options: [],
-                                                              errorHandler: { _, _ in true }) else { return 0 }
-        var total: Int64 = 0
-        for case let file as URL in enumerator {
-            guard let values = try? file.resourceValues(forKeys: Set(keys)), values.isRegularFile == true else { continue }
-            total += Int64(values.totalFileAllocatedSize ?? 0)
-        }
-        return total
+        FastSizeCalculator.allocatedBytes(of: url)
     }
 
     /// 启动盘所在 APFS 容器里系统、预启动、恢复、虚拟内存几个卷的占用（`diskutil apfs list -plist`）

@@ -15,6 +15,7 @@ enum ItemPresentation {
     private static var cache: [URL: Info] = [:]
     private static var appIcons: [String: NSImage] = [:]
     private static var fileIcons: [String: NSImage] = [:]
+    private static var cachedAppURLs: [String: URL?] = [:]
     private static let policy = SafetyPolicy()
 
     /// Finder icon of a file or bundle, cached: list rows ask for it on every redraw.
@@ -94,13 +95,65 @@ enum ItemPresentation {
         return icon
     }
 
-    static func runningOwner(of item: ScanItem) -> String? {
-        guard let running = runningApp(of: item) else { return nil }
+    static func runningOwner(of item: ScanItem, home: URL = AppHome.url) -> String? {
+        guard let running = runningApp(of: item, home: home) else { return nil }
         return running.localizedName ?? CreativeApp.of(item)?.title ?? item.name
     }
 
+    /// Snapshots running applications once per cleanup batch instead of hitting LaunchServices/NSWorkspace per item.
+    static func runningOwners(for items: [ScanItem], home: URL = AppHome.url) -> [String] {
+        let runningApps = NSWorkspace.shared.runningApplications
+        var byBundleID: [String: NSRunningApplication] = [:]
+        var runningList: [(id: String, name: String, app: NSRunningApplication)] = []
+        for app in runningApps {
+            guard let id = app.bundleIdentifier else { continue }
+            byBundleID[id] = app
+            runningList.append((id: id, name: app.localizedName ?? "", app: app))
+        }
+
+        var seenKeys: Set<String> = []
+        var names: [String] = []
+        var seenNames: Set<String> = []
+        for item in items {
+            if let app = CreativeApp.of(item) {
+                guard seenKeys.insert("creative:\(app.id)").inserted else { continue }
+                if let match = byBundleID[app.bundleID] ?? runningList.first(where: { r in
+                    app.apps.contains { r.id == $0 || r.id.hasPrefix($0 + ".") || r.name.hasPrefix($0) }
+                })?.app {
+                    let display = match.localizedName ?? app.title
+                    if seenNames.insert(display).inserted { names.append(display) }
+                }
+                continue
+            }
+            if let chat = ChatCache.part(for: item.url, home: home) {
+                guard seenKeys.insert("chat:\(chat.bundleID)").inserted else { continue }
+                if let match = byBundleID[chat.bundleID] {
+                    let display = match.localizedName ?? item.name
+                    if seenNames.insert(display).inserted { names.append(display) }
+                }
+                continue
+            }
+            guard seenKeys.insert("name:\(item.name)").inserted else { continue }
+            let alias = aliases[item.name]?.bundleID
+            if let alias {
+                if let match = byBundleID[alias] {
+                    let display = match.localizedName ?? item.name
+                    if seenNames.insert(display).inserted { names.append(display) }
+                }
+                continue
+            }
+            if let applicationURL = application(for: item.name),
+               let identifier = Bundle(url: applicationURL)?.bundleIdentifier,
+               let match = byBundleID[identifier] {
+                let display = match.localizedName ?? item.name
+                if seenNames.insert(display).inserted { names.append(display) }
+            }
+        }
+        return names
+    }
+
     /// The running app this cache belongs to, if any (by bundle id, not by open files).
-    static func runningApp(of item: ScanItem) -> NSRunningApplication? {
+    static func runningApp(of item: ScanItem, home: URL = AppHome.url) -> NSRunningApplication? {
         if let app = CreativeApp.of(item) {
             let running = NSWorkspace.shared.runningApplications.first { running in
                 guard let id = running.bundleIdentifier else { return false }
@@ -109,7 +162,7 @@ enum ItemPresentation {
             if let running { return running }
         }
         // A chat app's cache: the owner is the app itself, not a folder name to look up.
-        if let chat = ChatCache.part(for: item.url, home: AppHome.url) {
+        if let chat = ChatCache.part(for: item.url, home: home) {
             return NSWorkspace.shared.runningApplications.first { $0.bundleIdentifier == chat.bundleID }
         }
         let alias = aliases[item.name]?.bundleID
@@ -121,10 +174,19 @@ enum ItemPresentation {
 
     private static func resolve(_ item: ScanItem) -> Info {
         let name = item.name
+        if item.kind == .cache, item.note == DiagnosticJunk.note {
+            return Info(title: "旧诊断报告", icon: nil, symbol: "doc.text.magnifyingglass")
+        }
+        if item.kind == .cache, let browser = BrowserCaches.owner(of: item.url, home: AppHome.url) {
+            return Info(title: "\(browser.name) 网页与渲染缓存", icon: appIcon(bundleID: browser.bundleID), symbol: "globe")
+        }
         if let browser = Leftovers.browser(of: item.url) {
             return Info(title: "\(browser.name) 旧版本副本", icon: appIcon(bundleID: browser.bundleID), symbol: "globe")
         }
         if item.url == Leftovers.clangCache { return Info(title: "Clang 编译缓存", icon: nil, symbol: "hammer.fill") }
+        if item.kind == .cache, let tool = ToolVersions(home: AppHome.url).tool(for: item.url) {
+            return Info(title: "\(tool.name) \(item.name) 旧版本", icon: nil, symbol: "terminal")
+        }
         if let backup = policy.iosBackup(item.url) { return Info(title: "\(backup.device) 的备份", icon: nil, symbol: "iphone") }
         if SafetyPolicy.iosFirmwareFolders.contains(where: { item.url.path.hasSuffix("/" + $0) }) {
             return Info(title: "iOS 系统更新文件", icon: nil, symbol: "iphone.and.arrow.forward")
@@ -188,21 +250,28 @@ enum ItemPresentation {
     }
 
     private static func application(for name: String) -> URL? {
+        if let hit = cachedAppURLs[name] { return hit }
         // Bundle-id style folders: try the full id, then drop trailing parts
         // (com.tencent.meeting.UpdateServer → com.tencent.meeting).
+        let resolved: URL?
         if name.contains("."), !name.hasPrefix(".") {
             var parts = name.split(separator: ".").map(String.init)
+            var found: URL?
             while parts.count >= 3 {
-                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: parts.joined(separator: ".")) { return url }
+                if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: parts.joined(separator: ".")) {
+                    found = url
+                    break
+                }
                 parts.removeLast()
             }
-            return nil
+            resolved = found
+        } else {
+            // Plain names like "Microsoft Edge".
+            resolved = ["/Applications", NSHomeDirectory() + "/Applications"]
+                .map { URL(fileURLWithPath: $0).appending(path: name + ".app") }
+                .first { FileManager.default.fileExists(atPath: $0.path) }
         }
-        // Plain names like "Microsoft Edge".
-        for directory in ["/Applications", NSHomeDirectory() + "/Applications"] {
-            let url = URL(fileURLWithPath: directory).appending(path: name + ".app")
-            if FileManager.default.fileExists(atPath: url.path) { return url }
-        }
-        return nil
+        cachedAppURLs[name] = resolved
+        return resolved
     }
 }

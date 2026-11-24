@@ -36,11 +36,14 @@ struct ScanItem: Identifiable, Codable, Sendable {
     let identity: FileIdentity
     /// Last change of the item itself, shown as "N 个月未修改" on rows the user decides about. Absent in older saved results.
     var modified: Date? = nil
+    /// The file system’s block count, when recorded. Shared APFS extents can still overlap.
+    var allocatedBytes: Int64? = nil
 
+    var cleanupBytes: Int64 { allocatedBytes ?? bytes }
     var name: String { url.lastPathComponent }
 }
 
-struct FileIdentity: Equatable, Codable, Sendable {
+struct FileIdentity: Equatable, Hashable, Codable, Sendable {
     let device: UInt64
     let inode: UInt64
 }
@@ -100,13 +103,44 @@ struct CleanupReport: Sendable {
     let movedCount: Int
     let movedBytes: Int64
     let failures: [Failure]
-    /// Apps that were open while their caches went; they hold on to the space until they restart.
+    /// Apps that may regenerate caches while still open.
     var openApps: [String] = []
+    var recreatedCount = 0
+    var alreadyGoneCount = 0
+    /// Pure caches purged directly without going through Trash (immediately freeing APFS space).
+    var purgedCount: Int = 0
+    var purgedBytes: Int64 = 0
+
+    var totalClearedCount: Int { movedCount + purgedCount }
+    var totalClearedBytes: Int64 {
+        let add = movedBytes.addingReportingOverflow(purgedBytes)
+        return add.overflow ? Int64.max : add.partialValue
+    }
 }
 
 struct ScanProgress: Sendable {
     let scannedCount: Int
     let currentFolder: String
+    var stage: String? = nil
+
+    init(scannedCount: Int, currentFolder: String, stage: String? = nil) {
+        self.scannedCount = scannedCount
+        self.currentFolder = currentFolder
+        self.stage = stage
+    }
+}
+
+struct ScanModuleProgress: Identifiable, Equatable, Sendable {
+    enum Status: Equatable, Sendable {
+        case waiting
+        case running(String)
+        case done(String, accent: Bool)
+    }
+
+    let id: String
+    let title: String
+    let symbol: String
+    var status: Status
 }
 
 enum ByteFormat {

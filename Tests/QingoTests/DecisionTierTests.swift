@@ -168,7 +168,8 @@ struct DecisionTierTests {
         #expect(store.result?.items.count == before && store.undoable.isEmpty)
     }
 
-    /// One click cleans: a cache whose files are open (its app running) still goes, without a confirmation sheet.
+    /// Project-level `.build` artifacts stay on the reversible Trash confirmation path (not irreversible directPurge),
+    /// and still move to Trash even when a file inside is open.
     @MainActor @Test func cacheInUseIsCleanedInOneClick() async throws {
         let home = try makeHome()
         let build = home.appending(path: "Tool/.build")
@@ -188,12 +189,11 @@ struct DecisionTierTests {
         let handle = try FileHandle(forReadingFrom: object)
         defer { try? handle.close() }
         store.reviewCleanup()
-        #expect(!store.showTrashConfirmation)
+        #expect(store.showTrashConfirmation)
+        store.trashSelectedItems()
         while store.isCleaning { try await Task.sleep(for: .milliseconds(20)) }
         #expect(store.cleanupReport?.movedCount == 1)
         #expect(!FileManager.default.fileExists(atPath: build.path))
-        store.undoLastCleanup()
-        while store.isRestoring { try await Task.sleep(for: .milliseconds(20)) }
     }
 
     /// An old saved result: one cache was rebuilt since (new folder, same path), one is already gone.
@@ -219,6 +219,9 @@ struct DecisionTierTests {
         let outcome = await TrashService.moveAll(items, policy: policy)
         #expect(outcome.failures.isEmpty)
         #expect(outcome.moved.count == 1 && outcome.moved.first?.item.bytes == 5_000)
+        let capacity = try #require(outcome.volumes.first)
+        #expect(capacity.afterMove?.uuid == capacity.before.uuid)
+        #expect(capacity.afterMove?.change(since: capacity.before) != nil)
         #expect(outcome.gone.map(\.path) == items.filter { $0.url.path.contains("/B/") }.map(\.id.path))
         #expect(!FileManager.default.fileExists(atPath: rebuilt.path))
         _ = TrashService.putBack(outcome.moved.map { ($0.item.url, $0.trashed) })
