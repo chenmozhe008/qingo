@@ -13,8 +13,8 @@ ditto dist/小清.app "$OUT/小清.app"
 strip -S -x "$OUT/小清.app/Contents/MacOS/Qingo" 2>/dev/null
 "$HOME/Coding/tools/mac-app-workflow/release-sign.sh" "$OUT/小清.app" io.github.chenmozhe008.qingo
 
-# Refuse to ship anything that names the build machine.
-if strings -a "$OUT/小清.app/Contents/MacOS/Qingo" | grep -E "/Users/|Coding Project" >/dev/null; then
+# Refuse to ship anything that names the build machine (/Users/Shared is a standard macOS directory).
+if strings -a "$OUT/小清.app/Contents/MacOS/Qingo" | grep -E "/Users/|Coding Project" | grep -vE "^/Users/Shared(/|$)" >/dev/null; then
   echo "error: binary still contains local paths" >&2; exit 1
 fi
 
